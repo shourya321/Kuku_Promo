@@ -67,7 +67,8 @@ def random_clips(episodes, n, seed=7):
     return out
 
 
-GROUP_NAMES = {"AI": "AI picks", "KW": "keyword baseline", "RND": "random 25-45s clips"}
+GROUP_NAMES = {"AI": "AI picks", "KW": "keyword baseline", "RND": "random 25-45s clips",
+               "V1": "v1 AI picks", "V2": "v2 AI picks"}   # V1/V2: head-to-head pool (tools/make_h2h_pool.py)
 # Groq free tier allows few tokens per minute, so its judge gets small batches and a slow pace.
 JUDGE_PACE = {"groq": {"rpm": 3, "batch": 4}}
 
@@ -105,16 +106,18 @@ def compare_judges(pool, episodes, llm, a, rd):
         groups = {}
         for p in clips:
             groups.setdefault(p["id"].split("-")[0], []).append(p)
-        by_judge[name] = {GROUP_NAMES[g]: {k: mean([p.get("judge", {}).get(k) for p in ps])
+        by_judge[name] = {GROUP_NAMES.get(g, g): {k: mean([p.get("judge", {}).get(k) for p in ps])
                                            for k in ("hook", "cliffhanger", "standalone", "trope", "visual")}
                           | {"stranger_clarity": mean([p.get("cold", {}).get("clarity") for p in ps]),
                              "stranger_keep_watching": mean([p.get("cold", {}).get("keep_watching") for p in ps]),
                              "overall_score_0_100": mean([Run.score(p) for p in ps]),
                              "scored": sum(1 for p in ps if p.get("judge"))}
                           for g, ps in sorted(groups.items())}
-        o = {g: v["overall_score_0_100"] for g, v in by_judge[name].items()}
-        by_judge[name]["_ordering_AI>KW>RND"] = bool(o["AI picks"] and o["keyword baseline"] and o["random 25-45s clips"]
-                                                      and o["AI picks"] > o["keyword baseline"] > o["random 25-45s clips"])
+        o = {g: v["overall_score_0_100"] or 0 for g, v in by_judge[name].items()}
+        kw, rnd = o.get("keyword baseline", 0), o.get("random 25-45s clips", 0)
+        for ai in ("AI picks", "v1 AI picks", "v2 AI picks"):
+            if ai in o:
+                by_judge[name][f"_ordering_{ai}>KW>RND"] = o[ai] > kw > rnd
         for p in clips:
             judged.setdefault(p["id"], {})[name] = p.get("judge")
 
@@ -129,7 +132,7 @@ def compare_judges(pool, episodes, llm, a, rd):
         p["judges"] = judged.get(p["id"], {})    # every judge's scores, side by side, per clip
     (rd / "eval_comparison_clips.json").write_text(json.dumps(pool, ensure_ascii=False, indent=1), encoding="utf-8")
     return {"by_judge": by_judge, "judge_agreement": agreement,
-            "ordering_holds_under_all_judges": all(v["_ordering_AI>KW>RND"] for v in by_judge.values())}
+            "ordering_holds_under_all_judges": all(x for v in by_judge.values() for k, x in v.items() if k.startswith("_ordering"))}
 
 
 def main():

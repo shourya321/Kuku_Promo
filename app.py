@@ -14,6 +14,9 @@ from promo_finder.assemble import clip_text
 from promo_finder.pipeline import Run
 
 ROOT = Path(__file__).parent
+# USD per 1M tokens (input, output). Approximate paid list prices; check the provider's page before quoting.
+PRICE_PER_M = {"gemini-flash-lite-latest": (0.10, 0.40), "llama-3.3-70b-versatile": (0.59, 0.79),
+               "llama-3.1-8b-instant": (0.05, 0.08), "openai/gpt-oss-120b": (0.15, 0.75)}
 st.set_page_config(page_title="Promo Finder", page_icon="🎬", layout="wide")
 st.title("🎬 Promo Finder for microdramas")
 st.caption("Reads a timestamped screenplay and proposes ranked 20-60 s promo clips: hook in the first 3 s, "
@@ -86,6 +89,14 @@ if res:
     c2.metric("Candidates found", summary["candidates_total"])
     c3.metric("Passed rules", summary["candidates_valid"])
     c4.metric("Runtime", f"{summary['runtime_s']:.0f}s")
+    # Estimated cost from real token counts, at list prices for a PAID key (the free tier costs $0).
+    usage = (summary.get("llm_stats") or {}).get("by_model") or {}
+    cost = sum(PRICE_PER_M.get(m.split(":", 1)[-1], (0.10, 0.40))[0] * u["in"] / 1e6
+               + PRICE_PER_M.get(m.split(":", 1)[-1], (0.10, 0.40))[1] * u["out"] / 1e6 for m, u in usage.items())
+    if usage:
+        st.caption(f"Model calls: {sum(u['calls'] for u in usage.values())} new (cached replies are free) · "
+                   f"tokens in/out: {sum(u['in'] for u in usage.values()):,}/{sum(u['out'] for u in usage.values()):,} · "
+                   f"estimated cost at paid list prices: ${cost:.4f}")
     if summary.get("errors"):
         st.warning(f"{len(summary['errors'])} model errors (fell back to keyword engine where needed). See run_log.txt.")
 
@@ -95,9 +106,14 @@ if res:
                  width="stretch", hide_index=True)
 
     st.subheader("Review the top picks")
+    st.caption("You decide. Approve or reject each pick; decisions download as decisions.csv and can be fed back "
+               "as examples of what this team likes.")
+    decisions = st.session_state.setdefault("decisions", {})
     for p in ranked[:10]:
         segs = " + ".join(f"E{s['episode']} {s['start_tc']}-{s['end_tc']}" for s in p["segments"])
         with st.expander(f"#{p['rank']}  {p.get('title')}  |  {segs}  |  {p['duration']:.0f}s  |  score {p.get('score')}"):
+            if p.get("context_caption"):
+                st.info(f"**On-screen caption:** {p['context_caption']}   ·   **Ad hook text:** {p.get('ad_hook_text', '')}")
             st.markdown(f"**Hook (+{p.get('hook_offset', 0):.1f}s):** {p.get('hook')}  \n"
                         f"**Cliffhanger:** {p.get('cliffhanger')}  \n**Why:** {p.get('why')}  \n"
                         + (f"**Why post here:** {p['rank_reason']}  \n" if p.get("rank_reason") else "")
@@ -110,6 +126,19 @@ if res:
             if p.get("flags"):
                 st.caption("Flags: " + ", ".join(p["flags"]))
             st.code(clip_text(res["episodes"], p), language=None)
+            # --- human in the loop: the editor's call, saved per promo
+            k = p["id"]
+            c1, c2, c3 = st.columns([1, 1, 2])
+            verdict = c1.radio("Decision", ["undecided", "approve", "reject"], key=f"v_{k}", horizontal=False)
+            reason = c2.selectbox("Reject reason", ["", "weak hook", "needs context", "spoiler", "bad cut", "other"],
+                                  key=f"r_{k}", disabled=verdict != "reject")
+            note = c3.text_input("Note", key=f"n_{k}")
+            decisions[k] = {"rank": p["rank"], "promo_id": k, "title": p.get("title"), "segments": segs,
+                            "decision": verdict, "reason": reason if verdict == "reject" else "", "note": note}
+
+    made = [d for d in decisions.values() if d["decision"] != "undecided"]
+    st.download_button(f"Editor decisions (CSV, {len(made)} decided)", pd.DataFrame(list(decisions.values())).to_csv(index=False),
+                       "decisions.csv", disabled=not decisions)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
