@@ -126,8 +126,19 @@ if res:
             if p.get("flags"):
                 st.caption("Flags: " + ", ".join(p["flags"]))
             st.code(clip_text(res["episodes"], p), language=None)
-            # --- human in the loop: the editor's call, saved per promo
             k = p["id"]
+            # Silent 9:16 preview: every line timed to the real cut, hook bar, caption, CUT flashes, end card.
+            mp4 = out / "animatics" / f"{k}.mp4"
+            if st.button("Render animatic (silent 9:16 preview)", key=f"a_{k}") and not mp4.exists():
+                with st.spinner("Rendering..."):
+                    import imageio_ffmpeg
+                    from promo_finder.animatic import render
+                    mp4.parent.mkdir(exist_ok=True)
+                    eps = json.loads((out / "00_episodes_parsed.json").read_text(encoding="utf-8"))
+                    render(p, eps, mp4, imageio_ffmpeg.get_ffmpeg_exe())
+            if mp4.exists():
+                st.columns([1, 2])[0].video(mp4.read_bytes())   # narrow column: it is a vertical video
+            # --- human in the loop: the editor's call, saved per promo
             c1, c2, c3 = st.columns([1, 1, 2])
             verdict = c1.radio("Decision", ["undecided", "approve", "reject"], key=f"v_{k}", horizontal=False)
             reason = c2.selectbox("Reject reason", ["", "weak hook", "needs context", "spoiler", "bad cut", "other"],

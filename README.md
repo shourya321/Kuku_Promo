@@ -24,6 +24,8 @@ episodes (.txt) ─► PARSER (code) ─► MINER (cheap LLM, 1 call/episode, an
         → editor approves / rejects in the app (decisions.csv)
 ```
 
+**See a pick play:** [docs/demo_animatic.mp4](docs/demo_animatic.mp4) is a silent 9:16 animatic of the top promo from the synthetic demo show. Every line appears at its real time inside the cut, with the hook bar for the first 3 s, the ad hook text, a CUT flash at segment joins and an end card. Make your own with `python tools/render_animatic.py outputs/<run> outputs/animatics --top 5`, or with the "Render animatic" button in the app.
+
 ## v2: what changed, measured (not claimed)
 
 All numbers come from real runs on Kuku's 50-episode show (content stays local). Model-judged scores are **directional**: n = 10 clips per group, scored by an LLM.
