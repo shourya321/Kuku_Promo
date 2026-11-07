@@ -38,7 +38,7 @@ def main():
               rank_top=a.rank_top, max_eps=a.max_eps, montage=not a.no_montage)
     s = run.run()
     print(json.dumps({k: s[k] for k in ("candidates_total", "candidates_valid", "ranked", "rejected_by_reason",
-                                        "ranker_order_consistency_spearman", "runtime_s")}, indent=2))
+                                        "ranker_consistency", "repair_loop", "runtime_s")}, indent=2))
     if llm:
         print("LLM usage:", json.dumps(llm.stats["by_model"], indent=2))
     print(f"\nOpen {out}/promos_ranked.md (readable) or promos_ranked.csv (spreadsheet).")

@@ -104,6 +104,21 @@ def miner_user(show: str, ep, prev_logline: str = "") -> str:
             + f"\nBLOCKS:\n{lines}\n\nFind the best promo candidates in this episode.")
 
 
+def repair_user(show: str, ep, prev_logline: str, failures: list[tuple[dict, str]]) -> str:
+    """Same episode, plus the code's exact reasons why some picks failed. One call fixes them all."""
+    lines = []
+    for i, (c, hint) in enumerate(failures, 1):
+        segs = ", ".join(f"{s['start_block']}..{s['end_block']}" for s in c.get("segments", []))
+        lines.append(f"{i}. \"{c.get('title')}\" (segments {segs}, hook {c.get('hook_block')}, "
+                     f"cliffhanger {c.get('cliffhanger_block')}) -> {hint}")
+    return (miner_user(show, ep, prev_logline)
+            + "\n\nThese candidates FAILED the editor's timing checks:\n" + "\n".join(lines)
+            + "\n\nReturn a corrected version of EACH failed candidate, in the same order "
+              "(same story beat, fixed block range). Check the block times so the total is 22-55 s. "
+              "Return JSON with \"candidates\" only (moments: [])."
+              )
+
+
 # ---------------------------------------------------------------- judge
 class JudgeScore(BaseModel):
     id: str
@@ -165,6 +180,31 @@ Answer honestly from ONLY what is in the clip - do not guess beyond it.
 - confusing: things you did not understand (empty list if none)
 - clarity 1-5: how clear was it?  keep_watching 1-5: how badly do you want to see what happens next?
 Return ONLY JSON with exactly these keys."""
+
+
+# ---------------------------------------------------------------- captioner
+class CaptionOut(BaseModel):
+    context_caption: str
+    ad_hook_text: str
+
+
+CAPTION_SYSTEM = """You write on-screen text for a microdrama promo clip on TikTok/Reels.
+Strangers who never saw the show will watch it. You get the clip script and the episode's logline.
+Write:
+- context_caption: ONE line, 12 words or fewer, shown at the start. It gives a stranger the missing
+  context (who these people are to each other, what is at stake) so the clip makes sense.
+  Example: "Jilted at the altar, she married a beggar... he's a Duke"
+  NO spoilers beyond what the clip itself shows or implies. Do not reveal how it ends.
+- ad_hook_text: an overlay of 6 words or fewer that makes people stop scrolling. Example: "She had no idea who he was"
+Return ONLY JSON: {"context_caption": "...", "ad_hook_text": "..."}"""
+
+
+def caption_user(logline: str, clip: str) -> str:
+    return f"EPISODE LOGLINE (for your context only): {logline}\n\nCLIP SCRIPT:\n{clip}"
+
+
+def words(s: str) -> int:
+    return len(str(s).split())
 
 
 # ---------------------------------------------------------------- ranker

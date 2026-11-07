@@ -105,6 +105,35 @@ def test_judge_id_normalisation(raw):
     assert norm_clip_id(raw) == "E09-P1"
 
 
+# ---------------------------------------------------------------- final-list policy + stats
+def test_diversify_limits_episode_endings_and_repeats():
+    from promo_finder.policy import diversify
+    tropes = ["secret duke", "sister betrayal", "cruel family", "revenge", "wedding"]
+    ranked = [{"id": f"P{i}", "segments": [{"episode": i % 8}], "episode": i % 8,
+               "ends_on_episode_end": i < 8, "trope": tropes[0] if i < 10 else tropes[i % 5]} for i in range(30)]
+    top = diversify(ranked)[:10]
+    assert sum(p["ends_on_episode_end"] for p in top) <= 3
+    assert max(sum(q["episode"] == p["episode"] for q in top) for p in top) <= 2
+    assert len({p["trope_family"] for p in top}) >= 4
+
+
+def test_repair_hint_is_precise():
+    from promo_finder.assemble import repair_hint
+    ep = make_episode()
+    p = assemble(ep, _cand(ep, "B040", "B044"), allow_flash=False)
+    assert p["status"] == "rejected"
+    hint = repair_hint(ep, p)
+    assert hint.startswith("too short") and "needs +" in hint and "B0" in hint
+    assert repair_hint(ep, assemble(ep, _cand(ep, "B999", "B1000"))) is None   # bad ids are not "fixable"
+
+
+def test_stats():
+    from promo_finder.stats import kendall_tau, pair_agreement, spearman
+    assert spearman([1, 2, 3, 4], [10, 20, 30, 40]) == 1.0
+    assert kendall_tau(list("abcd"), list("dcba")) == -1.0
+    assert pair_agreement([1, 2, 3], [1, 3, 2])["agree_pct"] == pytest.approx(66.7)
+
+
 # ---------------------------------------------------------------- llm cache
 def test_llm_cache_hit(tmp_path, monkeypatch):
     from promo_finder.llm import LLM
