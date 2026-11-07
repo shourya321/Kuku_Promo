@@ -23,6 +23,7 @@ from pathlib import Path
 from promo_finder.assemble import clip_text, overlap_ratio
 from promo_finder.parser import fmt, is_clean_cut, load_show, shot_boundaries
 from promo_finder.pipeline import Run
+from promo_finder.policy import trope_family
 
 
 def load(run_dir):
@@ -66,6 +67,74 @@ def random_clips(episodes, n, seed=7):
     return out
 
 
+GROUP_NAMES = {"AI": "AI picks", "KW": "keyword baseline", "RND": "random 25-45s clips",
+               "V1": "v1 AI picks", "V2": "v2 AI picks"}   # V1/V2: head-to-head pool (tools/make_h2h_pool.py)
+# Groq free tier allows few tokens per minute, so its judge gets small batches and a slow pace.
+JUDGE_PACE = {"groq": {"rpm": 3, "batch": 4}}
+
+
+def judge_only_score(j: dict | None) -> float | None:
+    """0-100 from the 5 rubric scores only (no stranger test), so two judges are compared like for like."""
+    return Run.score({"judge": j}) if j else None
+
+
+def compare_judges(pool, episodes, llm, a, rd):
+    """Score the same blind pool with every judge in --judges, then measure how much the judges agree.
+
+    One judge from the same model family as the miner could share its blind spots ("grading its own
+    homework"). If a judge from a different family ranks AI > keyword > random too, the result is sturdier."""
+    from promo_finder.stats import pair_agreement, spearman
+    pool = [dict(p) for p in pool]
+    for p in pool:
+        p.pop("judge", None)
+    r = Run.__new__(Run)                       # a Run without a show folder: we only need judge()/cold()
+    r.episodes, r.mode, r.errors = episodes, "llm", []
+    r.log = lambda s: print(s); r.progress = lambda *x: None
+    r.llm = llm
+    r.cold([p for p in pool if not p.get("cold")])   # stranger test once (default profile); cached if reused
+
+    by_judge, scores, judged = {}, {}, {}
+    for spec in a.judges.split(","):
+        prov, model = spec.strip().split(":", 1)
+        pace = JUDGE_PACE.get(prov, {})
+        llm.roles = {**llm.roles, "judge": {"provider": prov, "model": model, "rpm": pace.get("rpm", 8)}}
+        clips = [dict(p) for p in pool]
+        r.llm = llm
+        r.judge(clips, batch=pace.get("batch", 8))
+        name = f"{prov}:{model}"
+        scores[name] = {p["id"]: judge_only_score(p.get("judge")) for p in clips}
+        groups = {}
+        for p in clips:
+            groups.setdefault(p["id"].split("-")[0], []).append(p)
+        by_judge[name] = {GROUP_NAMES.get(g, g): {k: mean([p.get("judge", {}).get(k) for p in ps])
+                                           for k in ("hook", "cliffhanger", "standalone", "trope", "visual")}
+                          | {"stranger_clarity": mean([p.get("cold", {}).get("clarity") for p in ps]),
+                             "stranger_keep_watching": mean([p.get("cold", {}).get("keep_watching") for p in ps]),
+                             "overall_score_0_100": mean([Run.score(p) for p in ps]),
+                             "scored": sum(1 for p in ps if p.get("judge"))}
+                          for g, ps in sorted(groups.items())}
+        o = {g: v["overall_score_0_100"] or 0 for g, v in by_judge[name].items()}
+        kw, rnd = o.get("keyword baseline", 0), o.get("random 25-45s clips", 0)
+        for ai in ("AI picks", "v1 AI picks", "v2 AI picks"):
+            if ai in o:
+                by_judge[name][f"_ordering_{ai}>KW>RND"] = o[ai] > kw > rnd
+        for p in clips:
+            judged.setdefault(p["id"], {})[name] = p.get("judge")
+
+    names = list(scores)
+    agreement = {}
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            ids = [c for c in scores[names[i]] if scores[names[i]][c] is not None and scores[names[j]].get(c) is not None]
+            x, y = [scores[names[i]][c] for c in ids], [scores[names[j]][c] for c in ids]
+            agreement[f"{names[i]} vs {names[j]}"] = {"clips": len(ids), "spearman_rho": spearman(x, y), **pair_agreement(x, y)}
+    for p in pool:
+        p["judges"] = judged.get(p["id"], {})    # every judge's scores, side by side, per clip
+    (rd / "eval_comparison_clips.json").write_text(json.dumps(pool, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"by_judge": by_judge, "judge_agreement": agreement,
+            "ordering_holds_under_all_judges": all(x for v in by_judge.values() for k, x in v.items() if k.startswith("_ordering"))}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -75,6 +144,9 @@ def main():
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--profile", default=None)
     ap.add_argument("--config", default="models.yaml")
+    ap.add_argument("--judges", default="gemini:gemini-flash-lite-latest,groq:llama-3.3-70b-versatile",
+                    help="comma list of provider:model; every judge scores the same blind clips")
+    ap.add_argument("--reuse-pool", help="eval_comparison_clips.json from an earlier evaluation: re-score those exact clips")
     ap.add_argument("--human-sheet", action="store_true")
     ap.add_argument("--score-human")
     a = ap.parse_args()
@@ -108,13 +180,33 @@ def main():
         m["stranger_test"] = {"tested": len(cold), "mean_clarity_5": mean([c["clarity"] for c in cold]),
                               "mean_keep_watching_5": mean([c["keep_watching"] for c in cold]),
                               "confused_clips(clarity<=2)": sum(c["clarity"] <= 2 for c in cold)}
-    m["ranker_order_consistency_spearman"] = summary.get("ranker_order_consistency_spearman")
+    m["ranker_consistency"] = summary.get("ranker_consistency", summary.get("ranker_order_consistency_spearman"))
+    m["repair_loop"] = summary.get("repair_loop")
+    m["ranked_with_repeated_footage"] = f"{sum('flash-forward cold open' in p.get('flags', []) for p in ranked)}/{len(ranked)}"
+    m["top10_distinct_trope_families"] = len({trope_family(p.get("trope", "")) for p in top})
+    m["top10_max_per_episode"] = max([sum(1 for q in top if q.get("episode") == p.get("episode")) for p in top] or [0])
+    capped = [p for p in ranked if p.get("cold") and p.get("cold_captioned")]
+    if capped:
+        m["caption_effect_same_clips"] = {
+            "clips": len(capped),
+            "clarity_without": mean([p["cold"]["clarity"] for p in capped]),
+            "clarity_with_caption": mean([p["cold_captioned"]["clarity"] for p in capped]),
+            "keep_watching_without": mean([p["cold"]["keep_watching"] for p in capped]),
+            "keep_watching_with_caption": mean([p["cold_captioned"]["keep_watching"] for p in capped]),
+            "clips_with_confusing_items_without": sum(bool(p["cold"].get("confusing")) for p in capped),
+            "clips_with_confusing_items_with_caption": sum(bool(p["cold_captioned"].get("confusing")) for p in capped)}
     m["llm_usage"] = summary.get("llm_stats", {}).get("by_model")
 
     if a.vs_baseline:
         from promo_finder.llm import LLM
         llm = LLM(a.config, a.profile, cache_dir=rd.parent / "llm_cache")
-        if a.baseline_run:
+        pool_file = rd / "eval_comparison_clips.json"
+        if a.reuse_pool:  # re-score the exact same blind clips (e.g. v1's) with other judges
+            pool = json.loads(Path(a.reuse_pool).read_text(encoding="utf-8"))
+            m["blind_comparison"] = compare_judges(pool, episodes, llm, a, rd)
+            m["blind_comparison_same_judge"] = next(iter(m["blind_comparison"]["by_judge"].values()))
+            pool = None
+        elif a.baseline_run:
             base = json.loads((Path(a.baseline_run) / "03_promos_ranked.json").read_text(encoding="utf-8"))[:a.n]
         else:
             from promo_finder import heuristic
@@ -133,31 +225,17 @@ def main():
                     base.append(c)
                 if len(base) == a.n:
                     break
-        for i, b in enumerate(base, 1):
-            b["id"] = f"KW-{i}"
-        rnd = random_clips(episodes, a.n)
-        ai = [dict(p, id=f"AI-{i}") for i, p in enumerate(top, 1)]
-        for p in ai:
-            p.pop("judge", None); p.pop("cold", None)
-        pool = ai + base + rnd
-        random.Random(1).shuffle(pool)  # blind: the judge never sees which system made a clip
-        r = Run.__new__(Run)
-        r.episodes, r.llm, r.mode, r.errors = episodes, llm, "llm", []
-        r.log = lambda s: print(s); r.progress = lambda *x: None
-        r.judge(pool); r.cold(pool)
-        groups = {}
-        for p in pool:
-            g = p["id"].split("-")[0]
-            groups.setdefault(g, []).append(p)
-        comp = {}
-        for g, ps in groups.items():
-            comp[{"AI": "AI picks (top %d)" % a.n, "KW": "keyword baseline", "RND": "random 25-45s clips"}[g]] = {
-                k: mean([p.get("judge", {}).get(k) for p in ps]) for k in ("hook", "cliffhanger", "standalone", "trope", "visual")
-            } | {"stranger_clarity": mean([p.get("cold", {}).get("clarity") for p in ps]),
-                 "stranger_keep_watching": mean([p.get("cold", {}).get("keep_watching") for p in ps]),
-                 "overall_score_0_100": mean([Run.score(p) for p in ps])}
-        m["blind_comparison_same_judge"] = comp
-        (rd / "eval_comparison_clips.json").write_text(json.dumps(pool, ensure_ascii=False, indent=1), encoding="utf-8")
+        if not a.reuse_pool:
+            for i, b in enumerate(base, 1):
+                b["id"] = f"KW-{i}"
+            rnd = random_clips(episodes, a.n)
+            ai = [dict(p, id=f"AI-{i}") for i, p in enumerate(top, 1)]
+            for p in ai:
+                p.pop("judge", None); p.pop("cold", None)
+            pool = ai + base + rnd
+            random.Random(1).shuffle(pool)  # blind: the judge never sees which system made a clip
+            m["blind_comparison"] = compare_judges(pool, episodes, llm, a, rd)
+            m["blind_comparison_same_judge"] = next(iter(m["blind_comparison"]["by_judge"].values()))
 
     if a.human_sheet:
         rnd = random_clips(episodes, a.n, seed=11)

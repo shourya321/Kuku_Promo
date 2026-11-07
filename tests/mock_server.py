@@ -37,6 +37,8 @@ def reply(system, user):
         ids = re.findall(r"^(\S+) \|", user, re.M)
         random.shuffle(ids)
         return json.dumps({"order": [{"id": i, "reason": "r"} for i in ids]})
+    if "on-screen text for a microdrama" in system:
+        return json.dumps({"context_caption": "She trusted her sister. Big mistake.", "ad_hook_text": "Wait for it"})
     if "story montage" in system:
         ids = re.findall(r"^(M\d+):", user, re.M)
         return json.dumps({"montages": [{"title": "m", "moment_ids": ids[:4], "hook": "h", "cliffhanger": "c", "why": "w"}]})

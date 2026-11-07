@@ -1,0 +1,14 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      # unit tests + keyword run + full AI code path against the offline mock API (no keys needed)
+      - run: python -m pytest -q
+      - run: python run.py --input sample_input/demo_show --mode heuristic --out /tmp/heuristic

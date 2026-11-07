@@ -53,8 +53,11 @@ def _merge(segs):
     return out
 
 
-def assemble(ep: Episode, cand: dict) -> dict:
-    """cand has block-id fields from the miner. Returns a promo dict with status ok/rejected."""
+def assemble(ep: Episode, cand: dict, allow_flash: bool = True) -> dict:
+    """cand has block-id fields from the miner. Returns a promo dict with status ok/rejected.
+
+    allow_flash=False skips the "flash-forward cold open" fix (it repeats footage and looks clumsy),
+    so the pipeline can first ask the miner for a cleaner fix and use the cold open only as a last resort."""
     p = dict(cand)
     p.setdefault("flags", [])
     p["reject_reasons"] = []
@@ -124,7 +127,7 @@ def assemble(ep: Episode, cand: dict) -> dict:
     dur = sum(e - s for s, e in segs)
 
     # --- too short: flash-forward cold open (hook beat first, then the build-up from earlier)
-    if dur < MIN_LEN:
+    if dur < MIN_LEN and allow_flash:
         a_end = snap(ep, hook_t + 4, hook_t + 2.5, hook_t + 6.5)
         need = MIN_LEN - dur + 1.0
         if a_end:
@@ -137,8 +140,8 @@ def assemble(ep: Episode, cand: dict) -> dict:
                 segs = [(segs[0][0], a_end), (new_start, segs[0][1])] + segs[1:]
                 p["flags"].append("flash-forward cold open")
         dur = sum(e - s for s, e in segs)
-        if dur < MIN_LEN:
-            reject(f"too short ({dur:.1f}s)")
+    if dur < MIN_LEN:
+        reject(f"too short ({dur:.1f}s)")
 
     # --- too long: keep the hook stretch + the run-up to the cliffhanger (one jump cut)
     if dur > MAX_LEN:
@@ -176,6 +179,30 @@ def assemble(ep: Episode, cand: dict) -> dict:
         p["flags"].append("ends on episode's final beat")
     p["status"] = "rejected" if p["reject_reasons"] else "ok"
     return p
+
+
+FIXABLE = ("too short", "too long", "hook at", "length")
+
+
+def repair_hint(ep: Episode, p: dict) -> str | None:
+    """A precise, block-level instruction for the miner to fix a rejected candidate, or None if the
+    failure is not a timing problem (e.g. a hallucinated block id: re-asking would not help)."""
+    reasons = p.get("reject_reasons", [])
+    if not reasons or not all(any(r.startswith(f) for f in FIXABLE) for r in reasons) or not p.get("segments"):
+        return None
+    dur, end = p["duration"], p["segments"][-1]["end"]
+    hook = p.get("hook_block", "?").split("-")[-1]
+    if dur < MIN_LEN:
+        need = 22.0 - dur   # aim a little above the 20 s floor
+        after = [b for b in ep.blocks if b.end >= end + need and is_clean_cut(ep, b.end)]
+        target = (f"at or after {after[0].id.split('-')[1]} (ends {fmt(after[0].end)})" if after
+                  else "later (the episode ends soon: consider adding a second segment)")
+        return (f"too short ({dur:.1f}s): needs +{need:.1f}s. Extend the end to a clean cut {target}, "
+                f"or add an earlier segment, while keeping the hook {hook} in the first 3 s.")
+    if dur > MAX_LEN:
+        return (f"too long ({dur:.1f}s): cut {dur - 55:.1f}s. End earlier, or use 2 segments to skip slow material, "
+                f"keeping hook {hook} first and the cliffhanger last.")
+    return f"{reasons[0]}: the first segment must start on (or <=2 s before) the hook block {hook}."
 
 
 def intervals(p: dict) -> list[tuple[int, float, float]]:

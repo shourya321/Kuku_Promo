@@ -9,10 +9,17 @@ import time
 from pathlib import Path
 
 from . import heuristic, prompts as P
-from .assemble import assemble, clip_text, dedupe, norm_id, snap
+from .assemble import assemble, clip_text, dedupe, norm_id, repair_hint, snap
 from .parser import Episode, fmt, is_clean_cut, load_show
+from .policy import diversify
+from .stats import kendall_tau, spearman
 
 WEIGHTS = {"hook": 0.25, "cliffhanger": 0.20, "standalone": 0.20, "trope": 0.15, "visual": 0.10, "keep_watching": 0.10}
+
+
+def norm_clip_id(x) -> str:
+    """Models sometimes echo ids as "CLIP E09-P1", "id: e09-p1" etc. Normalise before matching."""
+    return re.sub(r"^\s*(clip|id)[\s:#]*", "", str(x), flags=re.I).strip().upper()
 
 
 def _now():
@@ -31,11 +38,13 @@ class Run:
         self.llm, self.mode = llm, mode
         self.judge_top, self.cold_top, self.rank_top = judge_top, cold_top, rank_top
         self.do_montage = montage and mode == "llm"
-        self.logf = open(self.out / "run_log.txt", "a", encoding="utf-8")
+        # "w", not "a": a rerun into the same folder must not mix its log with an older run's log
+        self.logf = open(self.out / "run_log.txt", "w", encoding="utf-8")
         self._log, self.progress = log, progress or (lambda *a: None)
         if llm is not None:
             llm.log = self.log  # model retries/fallbacks also go into run_log.txt
         self.errors: list[str] = []
+        self.repair_stats = {"sent_to_repair": 0, "fixed_by_miner": 0, "fixed_by_cold_open": 0, "still_rejected": 0}
         self.t0 = time.time()
 
     def log(self, msg):
@@ -66,9 +75,11 @@ class Run:
                     self.log(f"E{ep.number:02d}: miner failed ({str(e)[:120]}) -> keyword fallback")
                     out, meta = heuristic.mine_episode(ep), {"model": "keyword-fallback"}
             mined_raw[ep.number] = {"meta": meta, **out}
+            ep_cands = []
             for j, c in enumerate(out["candidates"], 1):
                 c = dict(c); c["id"] = f"E{ep.number:02d}-P{j}"; c["source"] = meta["model"]
-                cands.append(assemble(ep, c))
+                ep_cands.append((c, assemble(ep, c, allow_flash=False)))
+            cands += self._repair(ep, ep_cands)
             for j, m in enumerate(out.get("moments", []), 1):
                 mm = self._moment(ep, m, f"E{ep.number:02d}-M{j}")
                 if mm:
@@ -78,6 +89,40 @@ class Run:
                      f"{len(out.get('moments', []))} moments [{meta['model']}{' cached' if meta.get('cached') else ''}]")
         self.dump("01_mined_raw.json", mined_raw)
         return cands, moments
+
+    def _repair(self, ep, pairs: list[tuple[dict, dict]]) -> list[dict]:
+        """Repair loop. A candidate that failed only on timing goes back to the miner ONCE (one call per
+        episode, all failures together) with the exact reason. If the fix still fails, the old automatic
+        "flash-forward cold open" is the last resort, because it repeats footage and looks clumsy."""
+        failed = [(c, p, repair_hint(ep, p)) for c, p in pairs if p["status"] != "ok"]
+        failed = [(c, p, h) for c, p, h in failed if h]
+        fixes = {}
+        if failed and self.mode == "llm":
+            prev = self.episodes.get(ep.number - 1)
+            try:
+                obj, meta = self.llm.json("miner", P.MINER_SYSTEM,
+                                          P.repair_user(self.show, ep, prev.logline if prev else "",
+                                                        [(c, h) for c, _, h in failed]),
+                                          P.MinerOut, temperature=0.3, tag=f"repair_E{ep.number:02d}")
+                fixes = {c["id"]: r.model_dump() for (c, _, _), r in zip(failed, obj.candidates)}
+            except Exception as e:
+                self.errors.append(f"repair E{ep.number}: {e}")
+        out = []
+        for c, p in pairs:
+            if p["status"] == "ok" or not any(c is f[0] for f in failed):
+                out.append(p); continue
+            hint = next(h for fc, _, h in failed if fc is c)
+            if c["id"] in fixes:
+                r = assemble(ep, {**fixes[c["id"]], "id": c["id"], "source": c["source"]}, allow_flash=False)
+                if r["status"] == "ok":
+                    r["flags"].append("repaired by miner: " + hint.split(":")[0])
+                    self.repair_stats["fixed_by_miner"] += 1
+                    out.append(r); continue
+            last = assemble(ep, c, allow_flash=True)          # last resort
+            self.repair_stats["fixed_by_cold_open" if last["status"] == "ok" else "still_rejected"] += 1
+            out.append(last)
+        self.repair_stats["sent_to_repair"] += len(failed)
+        return out
 
     def _moment(self, ep, m, mid):
         a, b = norm_id(ep, m.get("start_block")), norm_id(ep, m.get("end_block"))
@@ -147,8 +192,8 @@ class Run:
                 break
         return out
 
-    def judge(self, items: list[dict]):
-        batch = 8
+    def judge(self, items: list[dict], batch: int = 8):
+        # batch = clips per call. Smaller batches fit providers with low tokens-per-minute (Groq free tier).
         for i in range(0, len(items), batch):
             chunk = items[i:i + batch]
             self.progress("judge", i, len(items))
@@ -160,13 +205,11 @@ class Run:
             try:
                 obj, meta = self.llm.json("judge", P.JUDGE_SYSTEM, P.judge_user(payload), P.JudgeOut,
                                           temperature=0.0, tag=f"judge_{i // batch + 1:02d}")
-                # Models sometimes echo ids as "CLIP E09-P1" or change case: normalise before matching,
-                # and fall back to position when the reply has exactly one score per clip.
-                norm = lambda x: re.sub(r"^\s*(clip|id)[\s:#]*", "", str(x), flags=re.I).strip().upper()
-                got = {norm(s.id): s.model_dump() for s in obj.scores}
+                # Fall back to position when the reply has exactly one score per clip.
+                got = {norm_clip_id(s.id): s.model_dump() for s in obj.scores}
                 positional = len(obj.scores) == len(chunk)
                 for k, p in enumerate(chunk):
-                    sc = got.get(norm(p["id"])) or (obj.scores[k].model_dump() if positional else None)
+                    sc = got.get(norm_clip_id(p["id"])) or (obj.scores[k].model_dump() if positional else None)
                     if sc:
                         p["judge"] = {**sc, "model": meta["model"]}
                     else:
@@ -192,6 +235,36 @@ class Run:
                 self.errors.append(f"cold {p['id']}: {e}")
         self.log(f"cold viewer: {sum('cold' in p for p in items)}/{len(items)} tested")
 
+    def captions(self, items: list[dict]):
+        """Context caption + ad hook text per promo, then the SAME stranger test again with the caption
+        shown first. Comparing p["cold"] and p["cold_captioned"] measures whether the caption helps."""
+        if self.mode == "heuristic":
+            return
+        for i, p in enumerate(items):
+            self.progress("captions", i, len(items))
+            ep = self.episodes.get(p.get("episode") or p["segments"][0]["episode"])
+            text = clip_text(self.episodes, p, with_rel_time=False, kinds=("ACTION", "DIALOGUE", "SFX", "CAMERA"))
+            try:
+                obj, meta = self.llm.json("captioner", P.CAPTION_SYSTEM, P.caption_user(ep.logline, text),
+                                          P.CaptionOut, temperature=0.3, tag=f"caption_{p['id']}")
+            except Exception as e:
+                self.errors.append(f"caption {p['id']}: {e}"); continue
+            p["context_caption"], p["ad_hook_text"] = obj.context_caption.strip(), obj.ad_hook_text.strip()
+            # length limits are checked in code, not trusted to the model
+            if P.words(p["context_caption"]) > 12 or P.words(p["ad_hook_text"]) > 6:
+                p.setdefault("flags", []).append("caption over word limit")
+            if not p.get("cold"):
+                continue
+            try:
+                obj, meta = self.llm.json("cold_viewer", P.COLD_SYSTEM,
+                                          f"ON-SCREEN TEXT AT THE START: {p['context_caption']}\n\nVIDEO SCRIPT:\n{text}",
+                                          P.ColdOut, temperature=0.0, tag=f"coldcap_{p['id']}")
+                p["cold_captioned"] = {**obj.model_dump(), "model": meta["model"]}
+            except Exception as e:
+                self.errors.append(f"cold+caption {p['id']}: {e}")
+        self.log(f"captions: {sum('context_caption' in p for p in items)}/{len(items)}, "
+                 f"re-tested with caption: {sum('cold_captioned' in p for p in items)}")
+
     @staticmethod
     def score(p: dict) -> float:
         j = p.get("judge")
@@ -213,7 +286,9 @@ class Run:
         return round(s, 1)
 
     def rank(self, items: list[dict]):
-        """Two ranking calls in different orders; average the positions (detects position bias)."""
+        """Three ranking calls, each seeing the shortlist in a different order (as given, reversed, shuffled).
+        The final order is the mean position. If the model just favoured whatever it saw first, the three
+        orders would disagree: the pairwise Spearman/Kendall numbers measure that position bias."""
         if self.mode == "heuristic" or len(items) < 3:
             return None
         def describe(p):
@@ -221,11 +296,13 @@ class Run:
             return (f"{p['id']} | {p['duration']:.0f}s | trope: {p.get('trope', '')} | HOOK: {p.get('hook', '')} | "
                     f"CLIFF: {p.get('cliffhanger', '')} | judge h{j.get('hook')}/c{j.get('cliffhanger')}/s{j.get('standalone')} | "
                     f"stranger understood: {c.get('what_is_happening', 'n/a')} (keep watching {c.get('keep_watching', 'n/a')}/5)")
+        shuffled = list(items)
+        random.Random(7).shuffle(shuffled)   # fixed seed: reruns send the same prompt (cache hit)
         orders, reasons = [], {}
-        for k, seq in enumerate([items, list(reversed(items))]):
+        for k, seq in enumerate([items, list(reversed(items)), shuffled]):
             user = "SHORTLIST:\n" + "\n".join(describe(p) for p in seq)
             try:
-                obj, meta = self.llm.json("ranker", P.RANK_SYSTEM, user, P.RankOut, temperature=0.0, tag=f"rank_{'AB'[k]}")
+                obj, meta = self.llm.json("ranker", P.RANK_SYSTEM, user, P.RankOut, temperature=0.0, tag=f"rank_{'ABC'[k]}")
                 ids = [r.id.strip() for r in obj.order if r.id.strip() in {p["id"] for p in items}]
                 ids += [p["id"] for p in items if p["id"] not in ids]
                 orders.append(ids)
@@ -240,10 +317,14 @@ class Run:
             p["rank_reason"] = reasons.get(p["id"], "")
             p["rank_positions"] = [o.index(p["id"]) + 1 for o in orders]
         consistency = None
-        if len(orders) == 2:
-            n = len(items)
-            d2 = sum((orders[0].index(i) - orders[1].index(i)) ** 2 for i in pos)
-            consistency = round(1 - 6 * d2 / (n * (n * n - 1)), 3)  # Spearman rho
+        if len(orders) >= 2:
+            pairs = [(a, b) for a in range(len(orders)) for b in range(a + 1, len(orders))]
+            sp = {f"{'ABC'[a]}-{'ABC'[b]}": spearman([orders[a].index(i) for i in pos], [orders[b].index(i) for i in pos])
+                  for a, b in pairs}
+            kt = {f"{'ABC'[a]}-{'ABC'[b]}": kendall_tau(orders[a], orders[b]) for a, b in pairs}
+            consistency = {"orders": len(orders), "spearman_pairs": sp, "kendall_pairs": kt,
+                           "spearman_mean": round(sum(v for v in sp.values() if v is not None) / len(sp), 3),
+                           "kendall_mean": round(sum(kt.values()) / len(kt), 3)}
         return sorted(items, key=lambda p: (pos[p["id"]], -p["score"])), consistency
 
     # ------------------------------------------------------------ main
@@ -270,14 +351,18 @@ class Run:
             p["score"] = self.score(p)
         short.sort(key=lambda p: -p["score"])
 
+        self.captions(short[:self.cold_top])
+
         consistency = None
         top = short[:self.rank_top]
         r = self.rank(top)
         if r:
             top, consistency = r
-        final = top + short[self.rank_top:]
+        model_order = [p["id"] for p in top + short[self.rank_top:]]
+        final = diversify(top + short[self.rank_top:])     # code rules on the top 10 (see policy.py)
         for i, p in enumerate(final, 1):
             p["rank"] = i
+            p["model_rank"] = model_order.index(p["id"]) + 1   # position before the diversity rules
 
         self.dump("02_all_candidates.json", cands)
         self.dump("03_promos_ranked.json", final)
@@ -292,7 +377,7 @@ class Run:
         cols = ["rank", "id", "title", "segments", "duration_s", "hook", "hook_offset_s", "cliffhanger",
                 "open_question", "why", "trope", "score", "hook_5", "cliff_5", "standalone_5", "trope_5", "visual_5",
                 "stranger_clarity_5", "stranger_keep_watching_5", "stranger_understood", "flags", "rank_reason",
-                "judge_critique", "source"]
+                "judge_critique", "source", "context_caption", "ad_hook_text", "model_rank", "trope_family"]
         with open(self.out / "promos_ranked.csv", "w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f); w.writerow(cols)
             for p in final:
@@ -302,7 +387,8 @@ class Run:
                             p.get("trope"), p.get("score"), j.get("hook"), j.get("cliffhanger"), j.get("standalone"),
                             j.get("trope"), j.get("visual"), c.get("clarity"), c.get("keep_watching"),
                             c.get("what_is_happening"), "; ".join(p.get("flags", [])), p.get("rank_reason", ""),
-                            j.get("critique", ""), p.get("source")])
+                            j.get("critique", ""), p.get("source"), p.get("context_caption", ""),
+                            p.get("ad_hook_text", ""), p.get("model_rank", ""), p.get("trope_family", "")])
         with open(self.out / "edit_decision_list.csv", "w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f); w.writerow(["rank", "promo_id", "segment", "episode", "start", "end", "length_s"])
             for p in final:
@@ -325,6 +411,8 @@ class Run:
                    f"- **Why it works:** {p.get('why')}"]
             if p.get("rank_reason"):
                 md.append(f"- **Why post here:** {p['rank_reason']}")
+            if p.get("context_caption"):
+                md.append(f"- **On-screen caption:** {p['context_caption']}  |  **Ad hook text:** {p.get('ad_hook_text', '')}")
             if j:
                 md.append(f"- **Judge:** hook {j.get('hook')}/5, cliff {j.get('cliffhanger')}/5, standalone {j.get('standalone')}/5, "
                           f"trope {j.get('trope')}/5, visual {j.get('visual')}/5. {j.get('critique', '')}")
@@ -342,7 +430,8 @@ class Run:
                    "candidates_total": len(cands),
                    "candidates_valid": sum(c["status"] == "ok" for c in cands),
                    "rejected_by_reason": _reason_counts(cands),
-                   "ranked": len(final), "ranker_order_consistency_spearman": consistency,
+                   "ranked": len(final), "ranker_consistency": consistency,
+                   "repair_loop": self.repair_stats,
                    "llm_stats": stats, "errors": self.errors, "runtime_s": round(time.time() - self.t0, 1)}
         self.dump("run_summary.json", summary)
         self.log(f"done in {summary['runtime_s']}s -> {self.out}")

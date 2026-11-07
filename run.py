@@ -29,6 +29,17 @@ def main():
     ap.add_argument("--no-montage", action="store_true")
     a = ap.parse_args()
 
+    # Free format check first: a new show with format quirks should fail in seconds, not after model calls.
+    from promo_finder.validate import validate
+    v = validate(a.input)
+    print(f"Format check: {v.get('episodes_found', 0)} episodes, {v.get('blocks_total', 0)} blocks, "
+          f"timestamps {v.get('timestamp_styles')}, CRLF files {v.get('crlf_files')}")
+    for p in v.get("problems", []):
+        print("  ! " + p)
+    if not v.get("ok"):
+        print("Format check failed: fix the input before running (python -m promo_finder.validate <input>).")
+        return 1
+
     out = a.out or f"outputs/{a.mode}_{time.strftime('%Y%m%d_%H%M%S')}"
     llm = None
     if a.mode == "llm":
@@ -38,7 +49,7 @@ def main():
               rank_top=a.rank_top, max_eps=a.max_eps, montage=not a.no_montage)
     s = run.run()
     print(json.dumps({k: s[k] for k in ("candidates_total", "candidates_valid", "ranked", "rejected_by_reason",
-                                        "ranker_order_consistency_spearman", "runtime_s")}, indent=2))
+                                        "ranker_consistency", "repair_loop", "runtime_s")}, indent=2))
     if llm:
         print("LLM usage:", json.dumps(llm.stats["by_model"], indent=2))
     print(f"\nOpen {out}/promos_ranked.md (readable) or promos_ranked.csv (spreadsheet).")

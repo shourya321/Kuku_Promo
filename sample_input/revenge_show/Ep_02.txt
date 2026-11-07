@@ -1,0 +1,74 @@
+EPISODE NUMBER: Episode 2
+EPISODE LOGLINE: Elias offers Nora a deal: marry him for one year and he will help her take back her father's company.
+CONTINUITY NOTES: Follows episode 1's rooftop.
+
+--- SCRIPT START ---
+
+SCENE 01
+Scene heading: INT. CITY - NIGHT
+Scene start: 00:00:00.00
+Scene end: 00:00:39.80
+
+Actions and dialogue:
+
+**Camera:**
+Start: (00:00:00.00) | End: (00:00:02.00)
+Close on Nora's wet face in an elevator mirror.
+
+**ELIAS (Measured):**
+Start: (00:00:02.00) | End: (00:00:05.60)
+"Five years ago your father saved my life. Tonight I repay it."
+
+**NORA (Wary):**
+Start: (00:00:05.60) | End: (00:00:08.60)
+"People don't come back from the dead to be kind."
+
+**ELIAS (Flat):**
+Start: (00:00:08.60) | End: (00:00:12.20)
+"No. They come back to collect. Grant stole your father's company."
+
+**Camera:**
+Start: (00:00:12.20) | End: (00:00:14.20)
+The elevator opens on a penthouse full of lawyers.
+
+**LAWYER (Brisk):**
+Start: (00:00:14.20) | End: (00:00:17.80)
+"One year of marriage. Fifty-one percent of Hale Holdings at the end."
+
+**NORA (Sharp):**
+Start: (00:00:17.80) | End: (00:00:19.60)
+"And what do you get?"
+
+**ELIAS (Cold):**
+Start: (00:00:19.60) | End: (00:00:22.60)
+"Grant on his knees. The way you were tonight."
+
+**Action:**
+Start: (00:00:22.60) | End: (00:00:25.60)
+Nora signs. Elias slides her mother's ring onto her finger.
+
+**Camera:**
+Start: (00:00:25.60) | End: (00:00:28.20)
+Cut to Grant's office. Vivienne watches the signing on a hidden camera feed.
+
+**VIVIENNE (Venomous):**
+Start: (00:00:28.20) | End: (00:00:31.40)
+"She married him? Then she dies before the honeymoon."
+
+**GRANT (Alarmed):**
+Start: (00:00:31.40) | End: (00:00:33.40)
+"Vivienne, what did you do?"
+
+**VIVIENNE (Smiling):**
+Start: (00:00:33.40) | End: (00:00:35.40)
+"I hired his driver."
+
+**Camera:**
+Start: (00:00:35.40) | End: (00:00:38.00)
+Nora and Elias step into a black car. The driver locks the doors.
+
+**SFX:**
+Start: (00:00:38.00) | End: (00:00:39.80)
+Click of the door locks. Engine roars. Cliffhanger.
+
+--- SCRIPT END ---

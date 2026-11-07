@@ -1,0 +1,3 @@
+# The revenge_show sample keeps Windows CRLF line endings on purpose (it tests the parser on them)
+sample_input/revenge_show/*.txt -text
+*.mp4 binary

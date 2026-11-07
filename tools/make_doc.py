@@ -35,7 +35,8 @@ stats = summ.get("llm_stats", {})
 tok_in, tok_out, calls = stats.get("prompt_tokens", 0), stats.get("completion_tokens", 0), stats.get("calls", 0)
 comp = ev.get("blind_comparison_same_judge", {})
 comp_rows = ""
-for name, v in comp.items():
+groups = {k: v for k, v in comp.items() if not k.startswith("_")}   # skip "_ordering..." flags
+for name, v in sorted(groups.items(), key=lambda kv: -(kv[1].get("overall_score_0_100") or 0)):
     comp_rows += (f"<tr><td>{e(name)}</td><td>{v.get('hook')}</td><td>{v.get('cliffhanger')}</td><td>{v.get('standalone')}</td>"
                   f"<td>{v.get('stranger_clarity')}</td><td>{v.get('stranger_keep_watching')}</td><td><b>{v.get('overall_score_0_100')}</b></td></tr>")
 
@@ -82,9 +83,16 @@ th {{ background: #f6eeee; font-weight: 600; }} .n {{ text-align: center; font-w
 
 html_path = out_pdf.with_suffix(".html")
 html_path.write_text(doc, encoding="utf-8")
-from playwright.sync_api import sync_playwright
-with sync_playwright() as pw:
-    b = pw.chromium.launch(); pg = b.new_page()
-    pg.goto(html_path.resolve().as_uri()); pg.pdf(path=str(out_pdf), format="A4", print_background=True)
-    b.close()
+try:
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page()
+        pg.goto(html_path.resolve().as_uri()); pg.pdf(path=str(out_pdf), format="A4", print_background=True)
+        b.close()
+except ImportError:   # no playwright: print with Microsoft Edge (preinstalled on Windows 10/11)
+    import subprocess
+    edge = next(p for p in [r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"] if Path(p).exists())
+    subprocess.run([edge, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+                    f"--print-to-pdf={out_pdf.resolve()}", html_path.resolve().as_uri()], check=True, timeout=120)
 print("wrote", out_pdf)

@@ -8,6 +8,7 @@
 #   cold_viewer  sees ONLY the clip text, says what it understood (tests "makes sense on its own")
 #   ranker       orders the final shortlist (2 calls, shuffled order to detect position bias)
 #   montage      stitches standout moments across episodes into 1-3 multi-segment promos
+#   captioner    writes a 12-word context caption + 6-word ad hook text per shortlisted promo
 #
 # Check model names and free-tier limits in your provider console; they change often.
 
@@ -40,6 +41,7 @@ profiles:
     cold_viewer: {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     ranker:      {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     montage:     {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    captioner:   {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
 
   # Gemini + Groq: judge and cold viewer come from a different model family
   # than the miner, which reduces "grading its own homework" bias.
@@ -53,6 +55,9 @@ profiles:
       - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     ranker:      {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     montage:     {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    captioner:
+      - {provider: groq, model: llama-3.1-8b-instant, rpm: 10}
+      - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
 
   groq_only:
     miner:       {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
@@ -60,6 +65,7 @@ profiles:
     cold_viewer: {provider: groq, model: llama-3.1-8b-instant, rpm: 10}
     ranker:      {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
     montage:     {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
+    captioner:   {provider: groq, model: llama-3.1-8b-instant, rpm: 10}
 
   local_ollama:
     default:     {provider: ollama, model: qwen2.5:14b}
@@ -71,3 +77,4 @@ profiles:
     cold_viewer: {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     ranker:      {provider: kuku, model: REPLACE_ME}
     montage:     {provider: kuku, model: REPLACE_ME}
+    captioner:   {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}

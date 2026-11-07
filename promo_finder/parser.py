@@ -16,8 +16,9 @@ import zipfile
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
-TS = r"\((\d+):(\d+(?:\.\d+)?)\)"
-RE_TIMES = re.compile(rf"^Start:\s*{TS}\s*\|\s*End:\s*{TS}\s*$")
+# A timestamp is "mm:ss.ff" (Kuku's format) or "hh:mm:ss(.ff)" (seen in other script tools).
+TS = r"\((\d+(?::\d+){1,2}(?:\.\d+)?)\)"
+RE_TIMES = re.compile(rf"^Start:\s*{TS}\s*\|\s*End:\s*{TS}\s*$", re.I)
 RE_HEADER = re.compile(r"^\*\*(.+?):\*\*\s*$")
 RE_SCENE = re.compile(r"^SCENE\s+(\d+)\s*$")
 RE_EP_NUM = re.compile(r"^EPISODE NUMBER:\s*Episode\s*(\d+)", re.I)
@@ -25,8 +26,12 @@ RE_EP_NUM = re.compile(r"^EPISODE NUMBER:\s*Episode\s*(\d+)", re.I)
 STRUCTURAL_TYPES = {"CAMERA", "ACTION", "SOUND FX", "SFX", "MUSIC", "VO", "TEXT", "TITLE"}
 
 
-def to_sec(m: str, s: str) -> float:
-    return int(m) * 60 + float(s)
+def to_sec(ts: str) -> float:
+    """'01:23.40' -> 83.4 and '00:01:23.40' -> 83.4 (each colon part is worth 60x the next)."""
+    total = 0.0
+    for part in ts.strip().split(":"):
+        total = total * 60 + float(part)
+    return total
 
 
 def fmt(t: float) -> str:
@@ -134,13 +139,11 @@ def parse_episode(text: str, fallback_number: int = 0) -> Episode:
         if s.startswith("Scene heading:") and ep.scenes:
             ep.scenes[-1]["heading"] = s.split(":", 1)[1].strip()
             continue
-        if s.startswith("Scene start:") and ep.scenes:
-            mm, ss = s.split(":", 1)[1].strip().split(":")
-            ep.scenes[-1]["start"] = to_sec(mm, ss)
-            continue
-        if s.startswith("Scene end:") and ep.scenes:
-            mm, ss = s.split(":", 1)[1].strip().split(":")
-            ep.scenes[-1]["end"] = to_sec(mm, ss)
+        if (s.startswith("Scene start:") or s.startswith("Scene end:")) and ep.scenes:
+            try:
+                ep.scenes[-1]["start" if "start" in s[:12] else "end"] = to_sec(s.split(":", 1)[1])
+            except ValueError:
+                ep.warnings.append(f"unparseable scene time: {s[:60]}")
             continue
         if m := RE_HEADER.match(s):
             flush()
@@ -148,8 +151,10 @@ def parse_episode(text: str, fallback_number: int = 0) -> Episode:
             continue
         if cur is not None:
             if m := RE_TIMES.match(s):
-                cur["start"] = to_sec(m.group(1), m.group(2))
-                cur["end"] = to_sec(m.group(3), m.group(4))
+                cur["start"] = to_sec(m.group(1))
+                cur["end"] = to_sec(m.group(2))
+            elif s.lower().startswith("start:"):
+                ep.warnings.append(f"unparseable timestamp line: {s[:60]}")
             elif s.startswith("--- SCRIPT END"):
                 flush()
             elif s:

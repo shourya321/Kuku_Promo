@@ -67,6 +67,10 @@ class LLM:
             raise LLMError(f"No model configured for role '{role}' in profile '{self.profile_name}'")
         return spec if isinstance(spec, list) else [spec]
 
+    def _has_key(self, provider: str) -> bool:
+        p = self.providers[provider]
+        return not p.get("requires_key", True) or bool(os.environ.get(p.get("api_key_env", "")) or p.get("api_key"))
+
     def _client(self, provider: str):
         if provider not in self._clients:
             from openai import OpenAI
@@ -94,16 +98,20 @@ class LLM:
              temperature: float = 0.2, tag: str = "") -> tuple[BaseModel, dict]:
         """Call the model for `role`, return (validated object, metadata)."""
         errors = []
-        for mcfg in self._chain(role):
+        # Skip models whose API key is not set (e.g. a Groq+Gemini profile with only a Gemini key),
+        # as long as at least one model in the chain can run. Saves a failed attempt + log line per call.
+        chain = [m for m in self._chain(role) if self._has_key(m["provider"])] or self._chain(role)
+        for i, mcfg in enumerate(chain):
             try:
-                return self._json_one(mcfg, system, user, schema, temperature, tag, role)
+                return self._json_one(mcfg, system, user, schema, temperature, tag, role,
+                                      has_fallback=i < len(chain) - 1)
             except Exception as e:  # try next model in the fallback chain
                 errors.append(f"{mcfg['provider']}:{mcfg['model']}: {e}")
                 self.stats["failures"] += 1
                 self.log(f"  ! {role} via {mcfg['model']} failed: {str(e)[:200]}")
         raise LLMError(" | ".join(errors))
 
-    def _json_one(self, mcfg, system, user, schema, temperature, tag, role):
+    def _json_one(self, mcfg, system, user, schema, temperature, tag, role, has_fallback=False):
         provider, model = mcfg["provider"], mcfg["model"]
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         key_src = json.dumps({"m": model, "p": provider, "msg": messages, "t": temperature}, sort_keys=True)
@@ -126,7 +134,7 @@ class LLM:
                 msgs += [{"role": "assistant", "content": last_text[:6000]},
                          {"role": "user", "content": f"Your output was not valid for the schema: {last_err[:800]}\n"
                                                      "Return ONLY the corrected JSON object."}]
-            text, usage = self._raw_call(provider, mcfg, msgs, temperature)
+            text, usage = self._raw_call(provider, mcfg, msgs, temperature, has_fallback)
             last_text = text
             try:
                 obj = schema.model_validate_json(_extract_json(text))
@@ -140,8 +148,11 @@ class LLM:
                 last_err = str(e)
         raise LLMError(f"invalid JSON after repairs: {last_err[:300]}")
 
-    def _raw_call(self, provider, mcfg, messages, temperature):
+    def _raw_call(self, provider, mcfg, messages, temperature, has_fallback=False):
         client = self._client(provider)
+        # A rate-limited model with a fallback behind it: give up after 2 tries and move on,
+        # instead of sleeping through 6 backoffs (minutes) on a model that is throttled anyway.
+        max_429 = 2 if has_fallback else 6
         model = mcfg["model"]
         pcfg = self.providers[provider]
         delay = 5.0
@@ -179,7 +190,7 @@ class LLM:
                                                  or "timeout" in low or "connection" in low or "empty response" in msg)
                 if daily_quota:
                     self.log(f"  ! {model}: daily free-tier quota used up -> trying fallback model")
-                if not retryable or attempt == 5:
+                if not retryable or attempt == 5 or (status == 429 and attempt + 1 >= max_429):
                     raise
                 m = re.search(r"retry(?:Delay| in|-after)?[\"':\s]*([\d.]+)\s*s", msg, re.I)
                 wait = float(m.group(1)) + 1 if m else delay

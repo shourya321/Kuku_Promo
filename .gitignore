@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 
 .gemini_key
+.groq_key
+doc_notes*.json
+.pytest_cache/
