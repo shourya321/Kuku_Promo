@@ -73,6 +73,8 @@ streamlit run app.py                                   # UI: run, review, approv
 ```
 Try it without Kuku's data: `python run.py --input sample_input/demo_show` (a 3-episode synthetic show written for this repo).
 
+**A new show in a different format.** `python -m promo_finder.validate <show>` is a free format check that also runs before every pipeline run and in the app. It reports episodes, blocks, timestamp style (`mm:ss.ff` or `hh:mm:ss.ff`), CRLF files, timestamp anomalies, missing CAMERA blocks and unparseable lines. `sample_input/revenge_show` is a second synthetic show in another genre (modern billionaire revenge, 4 episodes). It was written with quirks the parser did not originally handle: CRLF line endings, `hh:mm:ss.ff` timestamps, title-case headers, `Ep_01.txt` file names and an episode with no CAMERA blocks. After a parser fix for `hh:mm:ss`, the full AI pipeline ran on it: 4 ranked promos, all 4 passed the hook, length and clean-cut rules, and 1 timing failure was repaired by the miner.
+
 ## Swap the model
 Edit one line in `models.yaml`, or pick another profile: `--profile gemini_groq | groq_only | local_ollama | kuku_api`. Any OpenAI-compatible endpoint works. Each role (miner, judge, cold_viewer, captioner, ranker, montage) can use a different model and can have a fallback chain. A rate-limited model (429) with a fallback behind it is abandoned after 2 attempts, so a throttled free tier does not stall the run.
 
@@ -100,5 +102,5 @@ Kuku's input pack is never committed (`.gitignore` excludes `data/`, `outputs/`,
 * Every model-judged number is one LLM's opinion on n = 10 clips. Real performance is only knowable from an A/B test of the clips as ads.
 * All roles ran on one model family (Gemini Flash-Lite, free tier). A cross-family judge is supported (`--judges`) but needs a Groq key.
 * The ranker is order-sensitive (Spearman 0.48 across 3 prompt orders), so treat its order as a suggestion for the editor.
-* The context caption has not shown a measurable clarity gain yet.
+* The context caption has not shown a measurable clarity gain yet. It sometimes breaks its 12-word limit (flagged by code) and can invent a relationship the clip doesn't show, so an editor must check it.
 * Text only: no video, so visual quality (acting, framing) is judged from the script's descriptions.
