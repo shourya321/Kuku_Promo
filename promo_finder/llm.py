@@ -67,6 +67,10 @@ class LLM:
             raise LLMError(f"No model configured for role '{role}' in profile '{self.profile_name}'")
         return spec if isinstance(spec, list) else [spec]
 
+    def _has_key(self, provider: str) -> bool:
+        p = self.providers[provider]
+        return not p.get("requires_key", True) or bool(os.environ.get(p.get("api_key_env", "")) or p.get("api_key"))
+
     def _client(self, provider: str):
         if provider not in self._clients:
             from openai import OpenAI
@@ -94,7 +98,9 @@ class LLM:
              temperature: float = 0.2, tag: str = "") -> tuple[BaseModel, dict]:
         """Call the model for `role`, return (validated object, metadata)."""
         errors = []
-        chain = self._chain(role)
+        # Skip models whose API key is not set (e.g. a Groq+Gemini profile with only a Gemini key),
+        # as long as at least one model in the chain can run. Saves a failed attempt + log line per call.
+        chain = [m for m in self._chain(role) if self._has_key(m["provider"])] or self._chain(role)
         for i, mcfg in enumerate(chain):
             try:
                 return self._json_one(mcfg, system, user, schema, temperature, tag, role,

@@ -59,6 +59,17 @@ def test_crlf_input_parses_the_same():
     assert [(x.id, x.start, x.end, x.text) for x in a.blocks] == [(x.id, x.start, x.end, x.text) for x in b.blocks]
 
 
+def test_second_show_with_format_quirks():
+    """CRLF, hh:mm:ss.ff timestamps, title-case headers, Ep_01.txt names, an episode without CAMERA blocks."""
+    from promo_finder.validate import validate
+    r = validate(ROOT / "sample_input" / "revenge_show")
+    assert r["ok"] and r["episodes_found"] == 4 and r["blocks_total"] == 61
+    assert r["crlf_files"] == 4 and r["timestamp_styles"] == {"hh:mm:ss": 61}
+    assert any("E1: no CAMERA" in p for p in r["problems"])
+    _, eps = load_show(ROOT / "sample_input" / "revenge_show")
+    assert eps[0].block("E01-B011").speaker == "ELIAS" and eps[0].block("E01-B011").delivery == "Calm, Dangerous"
+
+
 # ---------------------------------------------------------------- assembler
 def _cand(ep, start_b, end_b, hook_b=None, cliff_b=None):
     return {"title": "t", "segments": [{"start_block": start_b, "end_block": end_b}],

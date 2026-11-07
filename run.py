@@ -29,6 +29,17 @@ def main():
     ap.add_argument("--no-montage", action="store_true")
     a = ap.parse_args()
 
+    # Free format check first: a new show with format quirks should fail in seconds, not after model calls.
+    from promo_finder.validate import validate
+    v = validate(a.input)
+    print(f"Format check: {v.get('episodes_found', 0)} episodes, {v.get('blocks_total', 0)} blocks, "
+          f"timestamps {v.get('timestamp_styles')}, CRLF files {v.get('crlf_files')}")
+    for p in v.get("problems", []):
+        print("  ! " + p)
+    if not v.get("ok"):
+        print("Format check failed: fix the input before running (python -m promo_finder.validate <input>).")
+        return 1
+
     out = a.out or f"outputs/{a.mode}_{time.strftime('%Y%m%d_%H%M%S')}"
     llm = None
     if a.mode == "llm":

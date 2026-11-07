@@ -1,0 +1,78 @@
+EPISODE NUMBER: Episode 1
+EPISODE LOGLINE: Nora is fired and humiliated at her ex-husband's engagement party, not knowing who the waiter is.
+CONTINUITY NOTES: Opens the series.
+
+--- SCRIPT START ---
+
+SCENE 01
+Scene heading: INT. CITY - NIGHT
+Scene start: 00:00:00.00
+Scene end: 00:00:45.00
+
+Actions and dialogue:
+
+**Action:**
+Start: (00:00:00.00) | End: (00:00:03.00)
+A glittering rooftop party. Nora, in a cheap coat, is stopped at the velvet rope.
+
+**GRANT (Smug):**
+Start: (00:00:03.00) | End: (00:00:06.60)
+"Look who crawled out of the divorce. Security, she's not on the list."
+
+**NORA (Steady):**
+Start: (00:00:06.60) | End: (00:00:10.00)
+"I'm not here for you, Grant. I'm here for my mother's ring."
+
+**VIVIENNE (Sneering):**
+Start: (00:00:10.00) | End: (00:00:13.00)
+"This ring? Grant gave it to me. Finders keepers."
+
+**Action:**
+Start: (00:00:13.00) | End: (00:00:15.60)
+Vivienne throws a glass of champagne in Nora's face. Guests laugh.
+
+**SFX:**
+Start: (00:00:15.60) | End: (00:00:17.20)
+The crowd's laughter, phones clicking.
+
+**GRANT (Cold):**
+Start: (00:00:17.20) | End: (00:00:20.40)
+"You were nothing before me. You're nothing after me."
+
+**NORA (Shaking):**
+Start: (00:00:20.40) | End: (00:00:23.40)
+"That ring is the only thing my mother left me."
+
+**VIVIENNE (Mocking):**
+Start: (00:00:23.40) | End: (00:00:26.40)
+"Then beg. On your knees, in front of everyone."
+
+**Action:**
+Start: (00:00:26.40) | End: (00:00:29.40)
+A waiter steps between them and quietly takes the ring from Vivienne's hand.
+
+**ELIAS (Calm, Dangerous):**
+Start: (00:00:29.40) | End: (00:00:31.60)
+"The lady asked for her ring."
+
+**GRANT (Furious):**
+Start: (00:00:31.60) | End: (00:00:34.40)
+"Who do you think you are? You pour drinks."
+
+**ELIAS (Quiet):**
+Start: (00:00:34.40) | End: (00:00:37.60)
+"I own the building you're standing on, Mr. Hale."
+
+**Action:**
+Start: (00:00:37.60) | End: (00:00:40.00)
+Every phone in the room lowers. Grant goes pale.
+
+**NORA (Stunned, Whispering):**
+Start: (00:00:40.00) | End: (00:00:43.00)
+"Elias? You were supposed to be dead."
+
+**SFX:**
+Start: (00:00:43.00) | End: (00:00:45.00)
+A low boom of music, then silence. Cliffhanger.
+
+--- SCRIPT END ---

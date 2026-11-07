@@ -1,0 +1,74 @@
+EPISODE NUMBER: Episode 4
+EPISODE LOGLINE: Nora turns Grant's own investors against him at the shareholder meeting.
+CONTINUITY NOTES: Follows episode 3's gunshot.
+
+--- SCRIPT START ---
+
+SCENE 01
+Scene heading: INT. CITY - NIGHT
+Scene start: 00:00:00.00
+Scene end: 00:00:39.40
+
+Actions and dialogue:
+
+**Camera:**
+Start: (00:00:00.00) | End: (00:00:02.00)
+A boardroom. Grant at the head of the table, smiling.
+
+**GRANT (Triumphant):**
+Start: (00:00:02.00) | End: (00:00:05.20)
+"The vote is a formality. Hale Holdings stays mine."
+
+**Action:**
+Start: (00:00:05.20) | End: (00:00:07.80)
+The doors open. Nora walks in, a bandaged Elias behind her.
+
+**VIVIENNE (Panicked):**
+Start: (00:00:07.80) | End: (00:00:09.60)
+"You're supposed to be..."
+
+**NORA (Icy):**
+Start: (00:00:09.60) | End: (00:00:12.40)
+"Dead? You keep saying that about my family."
+
+**NORA (Firm):**
+Start: (00:00:12.40) | End: (00:00:15.80)
+"Fifty-one percent. I vote to remove Grant Hale as CEO."
+
+**GRANT (Laughing):**
+Start: (00:00:15.80) | End: (00:00:18.80)
+"You can't. Your shares aren't valid for a year."
+
+**ELIAS (Calm):**
+Start: (00:00:18.80) | End: (00:00:21.80)
+"They are if the founder signs them over himself."
+
+**Camera:**
+Start: (00:00:21.80) | End: (00:00:24.20)
+The doors open again. Nora's father walks in on a cane.
+
+**FATHER (Weak but Fierce):**
+Start: (00:00:24.20) | End: (00:00:27.60)
+"Hello, Grant. Remember the hospital you left me in?"
+
+**Action:**
+Start: (00:00:27.60) | End: (00:00:30.00)
+Investors stand. Grant backs against the window.
+
+**VIVIENNE (Desperate):**
+Start: (00:00:30.00) | End: (00:00:33.00)
+"Grant, tell them it was your idea, not mine."
+
+**GRANT (Snapping):**
+Start: (00:00:33.00) | End: (00:00:34.60)
+"Shut up, Vivienne."
+
+**NORA (Quiet):**
+Start: (00:00:34.60) | End: (00:00:37.00)
+"Security. He's not on the list."
+
+**SFX:**
+Start: (00:00:37.00) | End: (00:00:39.40)
+Grant's phone buzzes. A text: 'I know who really shot Elias.' Cliffhanger.
+
+--- SCRIPT END ---

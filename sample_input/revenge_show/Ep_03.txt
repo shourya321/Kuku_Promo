@@ -1,0 +1,74 @@
+EPISODE NUMBER: Episode 3
+EPISODE LOGLINE: The car crash plot fails; Nora discovers Elias has been lying about why he really chose her.
+CONTINUITY NOTES: Follows episode 2's car.
+
+--- SCRIPT START ---
+
+SCENE 01
+Scene heading: INT. CITY - NIGHT
+Scene start: 00:00:00.00
+Scene end: 00:00:36.80
+
+Actions and dialogue:
+
+**Camera:**
+Start: (00:00:00.00) | End: (00:00:02.00)
+The car swerves through rain at high speed.
+
+**ELIAS (Commanding):**
+Start: (00:00:02.00) | End: (00:00:03.60)
+"Nora, get down. Now."
+
+**Action:**
+Start: (00:00:03.60) | End: (00:00:06.20)
+Elias grabs the wheel; the car spins into a guardrail.
+
+**SFX:**
+Start: (00:00:06.20) | End: (00:00:07.60)
+Metal screaming against metal.
+
+**Camera:**
+Start: (00:00:07.60) | End: (00:00:09.60)
+Smoke. The driver is gone. Elias is bleeding.
+
+**NORA (Terrified):**
+Start: (00:00:09.60) | End: (00:00:12.20)
+"You're bleeding. Elias, stay with me."
+
+**ELIAS (Weak):**
+Start: (00:00:12.20) | End: (00:00:15.20)
+"Whatever you find in my phone... I'm sorry."
+
+**Action:**
+Start: (00:00:15.20) | End: (00:00:18.20)
+Nora opens his phone. A photo: her father, alive, in a hospital bed.
+
+**NORA (Shocked):**
+Start: (00:00:18.20) | End: (00:00:21.20)
+"My father died three years ago. I buried him."
+
+**Camera:**
+Start: (00:00:21.20) | End: (00:00:23.20)
+Close on the photo's date stamp: last week.
+
+**NORA (Breaking):**
+Start: (00:00:23.20) | End: (00:00:26.60)
+"You knew. You knew he was alive and you married me anyway."
+
+**ELIAS (Fading):**
+Start: (00:00:26.60) | End: (00:00:29.60)
+"I married you because he asked me to protect you."
+
+**Action:**
+Start: (00:00:29.60) | End: (00:00:32.20)
+Headlights appear. Grant steps out of a car, holding a gun.
+
+**GRANT (Cold):**
+Start: (00:00:32.20) | End: (00:00:35.20)
+"Hand me the phone, Nora. Your father stays dead."
+
+**SFX:**
+Start: (00:00:35.20) | End: (00:00:36.80)
+A gunshot rings out. Cut to black.
+
+--- SCRIPT END ---

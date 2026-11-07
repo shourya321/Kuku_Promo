@@ -44,14 +44,28 @@ with st.sidebar:
     cold_top = st.slider("Clips given the stranger test", 0, 30, 15)
     use_cache = st.checkbox("Reuse cached model replies", True)
 
-src = st.radio("Input", ["Upload a show (.zip of episode .txt files)", "Demo show (synthetic, 3 episodes)"], horizontal=True)
+src = st.radio("Input", ["Upload a show (.zip of episode .txt files)", "Demo show (synthetic, 3 episodes)",
+                         "Second demo: billionaire revenge (4 episodes, different file format)"], horizontal=True)
 data = None
 if src.startswith("Upload"):
     up = st.file_uploader("Show zip", type=["zip"])
     if up:
         data = up.getvalue()
-else:
+elif src.startswith("Demo"):
     data = str(ROOT / "sample_input" / "demo_show")
+else:
+    data = str(ROOT / "sample_input" / "revenge_show")
+
+if data is not None:   # free format check before any model call
+    from promo_finder.validate import validate
+    vpath = data
+    if isinstance(data, bytes):
+        vpath = Path(tempfile.mkdtemp()) / "upload.zip"; vpath.write_bytes(data)
+    v = validate(vpath)
+    msg = (f"Format check: {v.get('episodes_found', 0)} episodes, {v.get('blocks_total', 0)} timed blocks, "
+           f"timestamps {v.get('timestamp_styles')}")
+    (st.success if v.get("ok") and not v["problems"] else st.warning if v.get("ok") else st.error)(
+        msg + ("".join(f"\n- {p}" for p in v["problems"]) if v["problems"] else ""))
 
 if st.button("Find promos", type="primary", disabled=data is None):
     work = Path(tempfile.mkdtemp(prefix="promo_"))
