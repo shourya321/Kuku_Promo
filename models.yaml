@@ -51,21 +51,21 @@ profiles:
       - {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
       - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}   # fallback
     cold_viewer:
-      - {provider: groq, model: llama-3.3-70b-versatile, rpm: 6}
+      - {provider: groq, model: qwen/qwen3.8-27b, rpm: 6}
       - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     ranker:      {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     montage:     {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     captioner:
-      - {provider: groq, model: llama-3.1-8b-instant, rpm: 10}
+      - {provider: groq, model: openai/gpt-oss-20b, rpm: 10}
       - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
 
   groq_only:
     miner:       {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
-    judge:       {provider: groq, model: llama-3.3-70b-versatile, rpm: 4}
-    cold_viewer: {provider: groq, model: llama-3.1-8b-instant, rpm: 10}
+    judge:       {provider: groq, model: qwen/qwen3.8-27b, rpm: 4}
+    cold_viewer: {provider: groq, model: openai/gpt-oss-20b, rpm: 10}
     ranker:      {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
     montage:     {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
-    captioner:   {provider: groq, model: llama-3.1-8b-instant, rpm: 10}
+    captioner:   {provider: groq, model: openai/gpt-oss-20b, rpm: 10}
 
   local_ollama:
     default:     {provider: ollama, model: qwen2.5:14b}
