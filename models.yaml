@@ -31,21 +31,15 @@ providers:
     api_key_env: KUKU_API_KEY
 
 profiles:
-  # Needs only a free Gemini key. Cheap model mines every episode; the
-  # stronger Flash model judges only the shortlist (cascade = low cost).
+  # Needs only a free Gemini key. Free-tier Flash returned 429/503 repeatedly
+  # (7 Nov 2026), so Flash-Lite serves every role. With a paid key, put a
+  # stronger model on judge/ranker: one-line change.
   gemini_only:
     miner:       {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
-    # Judge = Flash-Lite at temperature 0 so every clip is scored by the SAME model.
-    # (Free-tier Flash failed/rate-limited mid-run; mixing judges makes scores incomparable.)
-    # With a paid key, put a stronger model here: one-line change.
     judge:       {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     cold_viewer: {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
-    # Free-tier Flash returned 429/503 repeatedly on 7 Nov 2026, so Flash-Lite is primary for every role.
-    # With a paid key, swap in a stronger model for judge/ranker here.
     ranker:      {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
-    montage:
-      - {provider: gemini, model: gemini-flash-latest, rpm: 4}
-      - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    montage:     {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
 
   # Gemini + Groq: judge and cold viewer come from a different model family
   # than the miner, which reduces "grading its own homework" bias.
@@ -53,12 +47,12 @@ profiles:
     miner:       {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
     judge:
       - {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
-      - {provider: gemini, model: gemini-flash-latest, rpm: 4}      # fallback
+      - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}   # fallback
     cold_viewer:
       - {provider: groq, model: llama-3.3-70b-versatile, rpm: 6}
       - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
-    ranker:      {provider: gemini, model: gemini-flash-latest, rpm: 4}
-    montage:     {provider: gemini, model: gemini-flash-latest, rpm: 4}
+    ranker:      {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    montage:     {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
 
   groq_only:
     miner:       {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
