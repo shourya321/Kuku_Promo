@@ -70,7 +70,7 @@ def random_clips(episodes, n, seed=7):
 GROUP_NAMES = {"AI": "AI picks", "KW": "keyword baseline", "RND": "random 25-45s clips",
                "V1": "v1 AI picks", "V2": "v2 AI picks"}   # V1/V2: head-to-head pool (tools/make_h2h_pool.py)
 # Groq free tier allows few tokens per minute, so its judge gets small batches and a slow pace.
-JUDGE_PACE = {"groq": {"rpm": 3, "batch": 4}}
+JUDGE_PACE = {"groq": {"rpm": 2, "batch": 4}}
 
 
 def judge_only_score(j: dict | None) -> float | None:
@@ -97,11 +97,22 @@ def compare_judges(pool, episodes, llm, a, rd):
     for spec in a.judges.split(","):
         prov, model = spec.strip().split(":", 1)
         pace = JUDGE_PACE.get(prov, {})
-        llm.roles = {**llm.roles, "judge": {"provider": prov, "model": model, "rpm": pace.get("rpm", 8)}}
+        cfg = {"provider": prov, "model": model, "rpm": pace.get("rpm", 8)}
+        if "gpt-oss" in model:   # reasoning model: keep thinking short so a batch fits Groq's tokens-per-minute
+            cfg["extra_body"] = {"reasoning_effort": "low"}
+        llm.roles = {**llm.roles, "judge": cfg}
         clips = [dict(p) for p in pool]
         r.llm = llm
         r.judge(clips, batch=pace.get("batch", 8))
         name = f"{prov}:{model}"
+        # If a batch failed, Run.judge falls back to the KEYWORD judge. Those scores are not this judge's
+        # opinion, so drop them (and report how many) instead of mislabelling them.
+        fell_back = [p["id"] for p in clips if p.get("judge") and p["judge"].get("model") != name]
+        for p in clips:
+            if p["id"] in fell_back:
+                p.pop("judge")
+        if fell_back:
+            print(f"!! {name}: {len(fell_back)} clips NOT scored by this judge (fallback) - excluded")
         scores[name] = {p["id"]: judge_only_score(p.get("judge")) for p in clips}
         groups = {}
         for p in clips:
@@ -115,9 +126,11 @@ def compare_judges(pool, episodes, llm, a, rd):
                           for g, ps in sorted(groups.items())}
         o = {g: v["overall_score_0_100"] or 0 for g, v in by_judge[name].items()}
         kw, rnd = o.get("keyword baseline", 0), o.get("random 25-45s clips", 0)
+        complete = len(fell_back) == 0
+        by_judge[name]["_clips_not_scored"] = len(fell_back)
         for ai in ("AI picks", "v1 AI picks", "v2 AI picks"):
-            if ai in o:
-                by_judge[name][f"_ordering_{ai}>KW>RND"] = o[ai] > kw > rnd
+            if ai in o:   # an ordering verdict needs every clip scored by this judge
+                by_judge[name][f"_ordering_{ai}>KW>RND"] = (o[ai] > kw > rnd) if complete else None
         for p in clips:
             judged.setdefault(p["id"], {})[name] = p.get("judge")
 
@@ -132,7 +145,8 @@ def compare_judges(pool, episodes, llm, a, rd):
         p["judges"] = judged.get(p["id"], {})    # every judge's scores, side by side, per clip
     (rd / "eval_comparison_clips.json").write_text(json.dumps(pool, ensure_ascii=False, indent=1), encoding="utf-8")
     return {"by_judge": by_judge, "judge_agreement": agreement,
-            "ordering_holds_under_all_judges": all(x for v in by_judge.values() for k, x in v.items() if k.startswith("_ordering"))}
+            "ordering_holds_under_all_judges": all(x for v in by_judge.values() for k, x in v.items() if k.startswith("_ordering"))
+            if all(v["_clips_not_scored"] == 0 for v in by_judge.values()) else "n/a: some judge did not score every clip"}
 
 
 def main():
@@ -144,7 +158,7 @@ def main():
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--profile", default=None)
     ap.add_argument("--config", default="models.yaml")
-    ap.add_argument("--judges", default="gemini:gemini-flash-lite-latest,groq:llama-3.3-70b-versatile",
+    ap.add_argument("--judges", default="gemini:gemini-flash-lite-latest,groq:openai/gpt-oss-120b",
                     help="comma list of provider:model; every judge scores the same blind clips")
     ap.add_argument("--reuse-pool", help="eval_comparison_clips.json from an earlier evaluation: re-score those exact clips")
     ap.add_argument("--human-sheet", action="store_true")

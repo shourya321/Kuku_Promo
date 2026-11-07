@@ -38,12 +38,15 @@ All numbers come from real runs on Kuku's 50-episode show (content stays local).
 | hard rules met by ranked promos | 40 / 40 | 40 / 40 |
 | top 10 ending on an episode's final beat | 5 / 10 | 3 / 10 |
 | trope families in top 10 | not measured | 5 |
-| blind judge score /100, v1 vs v2 top 10 **in one pool** | 68.5 | **72.8** (keyword 65.6, random 52.3) |
+| blind judge score /100, v1 vs v2 top 10 **in one pool**, Gemini judge | 68.5 | **72.8** (keyword 65.6, random 52.3) |
+| same pool, **cross-family judge** (gpt-oss-120b via Groq) | 64.8 | **59.1 (worse)** (keyword 66.3, random 50.4) |
+| agreement between the two judges (40 clips) | | Spearman 0.28; same order on 60% of clip pairs |
 | hook / standalone / cliffhanger (same pool) | 3.0 / 2.9 / 4.4 | 3.6 / 3.5 / **3.8 (worse)** |
 | ranker agreement across prompt orders (Spearman) | 0.685 (2 orders) | 0.601 same pair; 0.48 mean over 3 orders (**worse**) |
 | stranger test with vs without the context caption (same 15 clips) | | clarity 4.27 vs 4.33, keep-watching 3.93 vs 3.93, clips with a confusing point 5 vs 7 |
 
 **Honest reading.**
+* **The headline gain depends on the judge.** Gemini (the miner's own family) ranks v2 > v1 > keyword > random. A judge from a different family (gpt-oss-120b) ranks keyword ≥ v1 > v2 > random, and the two judges barely agree (ρ 0.28). The one conclusion both support is that every system beats random clips. Whether the AI beats a good keyword heuristic, and whether v2 beats v1, stays **unproven** until humans rate the clips or they run as ads. This is the self-grading risk the cross-family check was built to catch.
 * The repair loop works: fewer clumsy cold opens and no timing rejections.
 * The diversity rules cost some cliffhanger strength, because authored episode endings are the strongest cliffhangers.
 * The caption did not raise the stranger's scores. It only reduced named confusions, so it is offered as an editor aid.
@@ -67,7 +70,7 @@ python run.py --input path/to/show.zip                 # AI run (profile from mo
 python run.py --input path/to/show.zip --max-eps 3     # quick smoke test
 python run.py --input path/to/show.zip --mode heuristic   # no AI, keyword baseline
 python evaluate.py outputs/<run> --vs-baseline --human-sheet
-python evaluate.py outputs/<run> --vs-baseline --judges gemini:gemini-flash-lite-latest,groq:llama-3.3-70b-versatile
+python evaluate.py outputs/<run> --vs-baseline --judges gemini:gemini-flash-lite-latest,groq:openai/gpt-oss-120b
                                                        # several judges score the same blind clips + agreement stats
 streamlit run app.py                                   # UI: run, review, approve/reject, download decisions.csv
 ```
@@ -100,7 +103,7 @@ Kuku's input pack is never committed (`.gitignore` excludes `data/`, `outputs/`,
 
 ## Known limitations (honest)
 * Every model-judged number is one LLM's opinion on n = 10 clips. Real performance is only knowable from an A/B test of the clips as ads.
-* All roles ran on one model family (Gemini Flash-Lite, free tier). A cross-family judge is supported (`--judges`) but needs a Groq key.
+* The pipeline runs on one model family (Gemini Flash-Lite, free tier). A cross-family judge (`--judges`, gpt-oss-120b) disagrees with it on which system is best (see above).
 * The ranker is order-sensitive (Spearman 0.48 across 3 prompt orders), so treat its order as a suggestion for the editor.
 * The context caption has not shown a measurable clarity gain yet. It sometimes breaks its 12-word limit (flagged by code) and can invent a relationship the clip doesn't show, so an editor must check it.
 * Text only: no video, so visual quality (acting, framing) is judged from the script's descriptions.
