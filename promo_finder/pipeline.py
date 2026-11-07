@@ -15,6 +15,11 @@ from .parser import Episode, fmt, is_clean_cut, load_show
 WEIGHTS = {"hook": 0.25, "cliffhanger": 0.20, "standalone": 0.20, "trope": 0.15, "visual": 0.10, "keep_watching": 0.10}
 
 
+def norm_clip_id(x) -> str:
+    """Models sometimes echo ids as "CLIP E09-P1", "id: e09-p1" etc. Normalise before matching."""
+    return re.sub(r"^\s*(clip|id)[\s:#]*", "", str(x), flags=re.I).strip().upper()
+
+
 def _now():
     return time.strftime("%H:%M:%S")
 
@@ -31,7 +36,8 @@ class Run:
         self.llm, self.mode = llm, mode
         self.judge_top, self.cold_top, self.rank_top = judge_top, cold_top, rank_top
         self.do_montage = montage and mode == "llm"
-        self.logf = open(self.out / "run_log.txt", "a", encoding="utf-8")
+        # "w", not "a": a rerun into the same folder must not mix its log with an older run's log
+        self.logf = open(self.out / "run_log.txt", "w", encoding="utf-8")
         self._log, self.progress = log, progress or (lambda *a: None)
         if llm is not None:
             llm.log = self.log  # model retries/fallbacks also go into run_log.txt
@@ -160,13 +166,11 @@ class Run:
             try:
                 obj, meta = self.llm.json("judge", P.JUDGE_SYSTEM, P.judge_user(payload), P.JudgeOut,
                                           temperature=0.0, tag=f"judge_{i // batch + 1:02d}")
-                # Models sometimes echo ids as "CLIP E09-P1" or change case: normalise before matching,
-                # and fall back to position when the reply has exactly one score per clip.
-                norm = lambda x: re.sub(r"^\s*(clip|id)[\s:#]*", "", str(x), flags=re.I).strip().upper()
-                got = {norm(s.id): s.model_dump() for s in obj.scores}
+                # Fall back to position when the reply has exactly one score per clip.
+                got = {norm_clip_id(s.id): s.model_dump() for s in obj.scores}
                 positional = len(obj.scores) == len(chunk)
                 for k, p in enumerate(chunk):
-                    sc = got.get(norm(p["id"])) or (obj.scores[k].model_dump() if positional else None)
+                    sc = got.get(norm_clip_id(p["id"])) or (obj.scores[k].model_dump() if positional else None)
                     if sc:
                         p["judge"] = {**sc, "model": meta["model"]}
                     else:
