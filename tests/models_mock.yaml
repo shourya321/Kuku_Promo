@@ -1,0 +1,6 @@
+default_profile: mock
+providers:
+  mock: {base_url: "http://127.0.0.1:8765/v1", requires_key: false}
+profiles:
+  mock:
+    default: {provider: mock, model: fake-model, rpm: 6000}

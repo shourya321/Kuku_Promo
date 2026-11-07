@@ -1,0 +1,12 @@
+# Kuku's input pack is confidential: never commit it or outputs made from it
+data/
+outputs/
+*.zip
+.cache/
+llm_cache/
+.streamlit/secrets.toml
+.venv/
+__pycache__/
+*.pyc
+
+.gemini_key

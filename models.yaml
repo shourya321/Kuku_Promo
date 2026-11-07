@@ -1,0 +1,79 @@
+# Which model does which job. Swapping a model = editing one line here.
+# Any OpenAI-compatible endpoint works. Keys come from environment variables
+# (or Streamlit secrets), never from this file.
+#
+# Roles:
+#   miner        reads one full episode, proposes promo candidates (many calls, cheap model)
+#   judge        scores a shortlist on a rubric (fewer calls, ideally a DIFFERENT, stronger model)
+#   cold_viewer  sees ONLY the clip text, says what it understood (tests "makes sense on its own")
+#   ranker       orders the final shortlist (2 calls, shuffled order to detect position bias)
+#   montage      stitches standout moments across episodes into 1-3 multi-segment promos
+#
+# Check model names and free-tier limits in your provider console; they change often.
+
+default_profile: gemini_only
+
+providers:
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+  ollama:                      # fully local, nothing leaves the machine
+    base_url: http://localhost:11434/v1
+    requires_key: false
+  kuku:                        # placeholder for an API Kuku provides in the interview
+    base_url: https://YOUR-ENDPOINT/v1
+    api_key_env: KUKU_API_KEY
+
+profiles:
+  # Needs only a free Gemini key. Cheap model mines every episode; the
+  # stronger Flash model judges only the shortlist (cascade = low cost).
+  gemini_only:
+    miner:       {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    # Judge = Flash-Lite at temperature 0 so every clip is scored by the SAME model.
+    # (Free-tier Flash failed/rate-limited mid-run; mixing judges makes scores incomparable.)
+    # With a paid key, put a stronger model here: one-line change.
+    judge:       {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    cold_viewer: {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    # Free-tier Flash returned 429/503 repeatedly on 7 Nov 2026, so Flash-Lite is primary for every role.
+    # With a paid key, swap in a stronger model for judge/ranker here.
+    ranker:      {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    montage:
+      - {provider: gemini, model: gemini-flash-latest, rpm: 4}
+      - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+
+  # Gemini + Groq: judge and cold viewer come from a different model family
+  # than the miner, which reduces "grading its own homework" bias.
+  gemini_groq:
+    miner:       {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    judge:
+      - {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
+      - {provider: gemini, model: gemini-flash-latest, rpm: 4}      # fallback
+    cold_viewer:
+      - {provider: groq, model: llama-3.3-70b-versatile, rpm: 6}
+      - {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    ranker:      {provider: gemini, model: gemini-flash-latest, rpm: 4}
+    montage:     {provider: gemini, model: gemini-flash-latest, rpm: 4}
+
+  groq_only:
+    miner:       {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
+    judge:       {provider: groq, model: llama-3.3-70b-versatile, rpm: 4}
+    cold_viewer: {provider: groq, model: llama-3.1-8b-instant, rpm: 10}
+    ranker:      {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
+    montage:     {provider: groq, model: openai/gpt-oss-120b, rpm: 2}
+
+  local_ollama:
+    default:     {provider: ollama, model: qwen2.5:14b}
+
+  # Example: plug in a stronger model Kuku provides, keep the rest unchanged.
+  kuku_api:
+    miner:       {provider: kuku, model: REPLACE_ME}
+    judge:       {provider: kuku, model: REPLACE_ME}
+    cold_viewer: {provider: gemini, model: gemini-flash-lite-latest, rpm: 8}
+    ranker:      {provider: kuku, model: REPLACE_ME}
+    montage:     {provider: kuku, model: REPLACE_ME}

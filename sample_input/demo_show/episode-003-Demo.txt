@@ -1,0 +1,85 @@
+EPISODE NUMBER: Episode 3
+EPISODE LOGLINE: Ryan confesses his family profited from Mia's mother's ruin, while Sloane plots to expose the fake engagement.
+CONTINUITY NOTES: Follows episode 2's confrontation in the penthouse.
+
+--- SCRIPT START ---
+
+SCENE 01
+Scene heading: INT. PENTHOUSE OFFICE – NIGHT
+Scene start: 00:00.00
+Scene end: 00:19.40
+
+Actions and dialogue:
+
+**CAMERA:**
+Start: (00:00.00) | End: (00:02.00)
+Medium shot on Ryan swallowing hard.
+
+**RYAN (Ashamed):**
+Start: (00:02.00) | End: (00:05.00)
+"My father bought the debt. We took the house."
+
+**MIA (Broken):**
+Start: (00:05.00) | End: (00:08.80)
+"You were sleeping in my bed while your family took my mother's home?"
+
+**ACTION:**
+Start: (00:08.80) | End: (00:10.20)
+Mia slaps Ryan hard across the face.
+
+**SOUND FX:**
+Start: (00:10.20) | End: (00:10.80)
+A sharp crack of the slap.
+
+**CAMERA:**
+Start: (00:10.80) | End: (00:12.80)
+Close-up on Ryan's stunned face, a red mark blooming.
+
+**MIA (Shaking, Fierce):**
+Start: (00:12.80) | End: (00:14.00)
+"Get out."
+
+**ACTION:**
+Start: (00:14.00) | End: (00:17.00)
+Ryan leaves. Mia turns and signs the contract in one stroke.
+
+**ADRIAN (Approving):**
+Start: (00:17.00) | End: (00:19.40)
+"Welcome to the family, Miss Hart."
+
+SCENE 02
+Scene heading: INT. SLOANE'S CAR – NIGHT
+Scene start: 00:19.40
+Scene end: 00:36.80
+
+Actions and dialogue:
+
+**CAMERA:**
+Start: (00:19.40) | End: (00:22.00)
+Sloane in the back seat, phone glowing on her face.
+
+**SLOANE (Venomous):**
+Start: (00:22.00) | End: (00:25.40)
+"A waitress engaged to Adrian Vale overnight? It's fake."
+
+**SLOANE (Scheming):**
+Start: (00:25.40) | End: (00:28.80)
+"Find me proof. And find out who her father really is."
+
+**CAMERA:**
+Start: (00:28.80) | End: (00:31.80)
+Close-up of the phone screen: a photo of Mia as a child beside a man in a military uniform.
+
+**SLOANE (Shocked, Whispering):**
+Start: (00:31.80) | End: (00:34.00)
+"No... that's impossible."
+
+**SOUND FX:**
+Start: (00:34.00) | End: (00:35.80)
+Ominous drone to a cliffhanger peak.
+
+**CAMERA:**
+Start: (00:35.80) | End: (00:36.80)
+Cut to black.
+
+--- SCRIPT END ---
