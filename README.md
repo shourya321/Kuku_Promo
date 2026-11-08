@@ -41,12 +41,14 @@ All numbers come from real runs on Kuku's 50-episode show (content stays local).
 | blind judge score /100, v1 vs v2 top 10 **in one pool**, Gemini judge | 68.5 | **72.8** (keyword 65.6, random 52.3) |
 | same pool, **cross-family judge** (gpt-oss-120b via Groq) | 64.8 | **59.1 (worse)** (keyword 66.3, random 50.4) |
 | agreement between the two judges (40 clips) | | Spearman 0.28; same order on 60% of clip pairs |
+| same pool, **third rater**, blind sheet (Claude Opus 5.5: an AI rater, **not a human**) | **75.8** | 68.3 (keyword 72.5, random 44.2) |
 | hook / standalone / cliffhanger (same pool) | 3.0 / 2.9 / 4.4 | 3.6 / 3.5 / **3.8 (worse)** |
 | ranker agreement across prompt orders (Spearman) | 0.685 (2 orders) | 0.601 same pair; 0.48 mean over 3 orders (**worse**) |
 | stranger test with vs without the context caption (same 15 clips) | | clarity 4.27 vs 4.33, keep-watching 3.93 vs 3.93, clips with a confusing point 5 vs 7 |
 
 **Honest reading.**
 * **The headline gain depends on the judge.** Gemini (the miner's own family) ranks v2 > v1 > keyword > random. A judge from a different family (gpt-oss-120b) ranks keyword ≥ v1 > v2 > random, and the two judges barely agree (ρ 0.28). The one conclusion both support is that every system beats random clips. Whether the AI beats a good keyword heuristic, and whether v2 beats v1, stays **unproven** until humans rate the clips or they run as ads. This is the self-grading risk the cross-family check was built to catch.
+* **A third rater did not settle it.** Claude Opus 5.5 filled the blind rating sheet with the system labels hidden. It is a third model family, **not a human**. Its order was v1 75.8 > keyword 72.5 > v2 68.3 > random 44.2. It agrees more with Gemini (ρ 0.50) than with gpt-oss (ρ 0.32), and "would post" came out keyword 10/10, v2 9/10, v1 8/10, random 3/10. All three raters put random last. On everything else they disagree, and two of the three rank v2 below v1. Human ratings are still needed; the same sheet works for them (`tools/blind_sheet.py`). This rater also penalised clips that repeat footage (3 of v1's, 1 of v2's), which supports v2's cold-open fix.
 * The repair loop works: fewer clumsy cold opens and no timing rejections.
 * The diversity rules cost some cliffhanger strength, because authored episode endings are the strongest cliffhangers.
 * The caption did not raise the stranger's scores. It only reduced named confusions, so it is offered as an editor aid.
@@ -73,11 +75,28 @@ python run.py --input path/to/show.zip --concurrency 8    # paid key: mine episo
 python evaluate.py outputs/<run> --vs-baseline --human-sheet
 python evaluate.py outputs/<run> --vs-baseline --judges gemini:gemini-flash-lite-latest,groq:openai/gpt-oss-120b
                                                        # several judges score the same blind clips + agreement stats
-streamlit run app.py                                   # UI: run, review, approve/reject, download decisions.csv
+streamlit run app.py                                   # UI: run, explore, compare, review, long cuts, ad pack, export
+python tools/blind_sheet.py make outputs/h2h_pool.json outputs/<run> outputs/sheet    # blind sheet for raters
+python tools/blind_sheet.py score ratings.csv outputs/sheet --rater "name" --judged outputs/<run>/eval_comparison_clips.json
 ```
 Try it without Kuku's data: `python run.py --input sample_input/demo_show` (a 3-episode synthetic show written for this repo).
 
 **A new show in a different format.** `python -m promo_finder.validate <show>` is a free format check that also runs before every pipeline run and in the app. It reports episodes, blocks, timestamp style (`mm:ss.ff` or `hh:mm:ss.ff`), CRLF files, timestamp anomalies, missing CAMERA blocks and unparseable lines. `sample_input/revenge_show` is a second synthetic show in another genre (modern billionaire revenge, 4 episodes). It was written with quirks the parser did not originally handle: CRLF line endings, `hh:mm:ss.ff` timestamps, title-case headers, `Ep_01.txt` file names and an episode with no CAMERA blocks. After a parser fix for `hh:mm:ss`, the full AI pipeline ran on it: 4 ranked promos, all 4 passed the hook, length and clean-cut rules, and 1 timing failure was repaired by the miner.
+
+## The app
+`streamlit run app.py` (live: https://kukupromo.streamlit.app) is a dark, neon "control deck":
+* **Sidebar:** engine (AI or keyword), model profile, key status (server key, your own key, or none; keys are never shown) and tuning.
+* **Input and launch:** a free format check shown as chips, then an estimate of model calls before you press Find promos.
+* **During the run:** a live pipeline stepper (parse → mine + repair → rules → blind judge → stranger test → captions → rank ×3 → final list) and a log terminal.
+* **Results** (headline numbers, then six tabs):
+  * **Leaderboard:** promo cards with a score ring, hook / cliffhanger / caption, a timeline of where each cut sits in its episode, judge bars and the stranger's read. Search, minimum score, trope-family filter, sort, and a switch to hide flagged picks. Each card opens to the script, critique and a 9:16 animatic render.
+  * **Show map:** charts of where the promos sit across episodes, the candidate funnel, a trope-family donut, a judge heatmap and rejection reasons.
+  * **Compare:** two promos side by side, with a dimension-by-dimension chart.
+  * **Review:** approve or reject with a reason and note, bulk-approve above a score, then download decisions.csv.
+  * **Studio:** build long cuts and write an ad pack on demand.
+  * **Export:** CSV, EDL, Markdown, long-cut EDL, ad pack, the zip of every output, and the run log.
+
+`tests/test_app.py` runs the app headless in keyword mode on every push. Presentation code lives in `promo_finder/ui_theme.py`, and the pipeline is unchanged by it.
 
 ## Long cuts (90 s – 3 min) for paid UA
 `python tools/long_cut.py outputs/<run>` writes `long_cuts.md`, `long_cuts.json` and `long_cuts_edl.csv`. Episodes are about 2 minutes, so a 90–180 s ad has to span episodes. Rather than asking a model for new timestamps, the tool **chains promos that already passed every rule**:

@@ -2,5 +2,5 @@ openai>=1.40
 pydantic>=2.6
 pyyaml>=6.0
 pandas>=2.0
-streamlit>=1.38
+streamlit>=1.50
 imageio-ffmpeg>=0.4
