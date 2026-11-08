@@ -26,6 +26,28 @@ ROOT = Path(__file__).parent
 PRICE_PER_M = {"gemini-flash-lite-latest": (0.10, 0.40), "openai/gpt-oss-120b": (0.15, 0.75),
                "openai/gpt-oss-20b": (0.075, 0.30), "llama-3.3-70b-versatile": (0.59, 0.79)}
 KEYS = {"GEMINI_API_KEY": "Gemini", "GROQ_API_KEY": "Groq", "OPENROUTER_API_KEY": "OpenRouter"}
+# Secret names people commonly use for the same key (matched case-insensitively, also inside [sections]).
+ALIASES = {"GEMINI_API_KEY": ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_KEY", "GOOGLE_GENAI_API_KEY", "GEMINI"],
+           "GROQ_API_KEY": ["GROQ_API_KEY", "GROQ_KEY", "GROQ"],
+           "OPENROUTER_API_KEY": ["OPENROUTER_API_KEY", "OPENROUTER_KEY", "OPENROUTER"]}
+
+
+def server_secrets() -> tuple[dict[str, str], str]:
+    """Every string secret as {UPPERCASE NAME: value}, flattened across [sections]; plus an error note.
+    Values never leave the server; only names are ever shown (in the key help, when nothing matched)."""
+    flat = {}
+
+    def walk(d):
+        for k, v in d.items():
+            if isinstance(v, str):
+                flat.setdefault(str(k).strip().upper(), v.strip().strip('"').strip())
+            elif hasattr(v, "items"):
+                walk(v)
+    try:
+        walk(st.secrets)
+    except Exception as e:      # no secrets file, or a TOML syntax error in it
+        return flat, type(e).__name__
+    return flat, ""
 CACHE = Path(tempfile.gettempdir()) / "promo_llm_cache"
 
 st.set_page_config(page_title="Promo Finder", page_icon="🎬", layout="wide", initial_sidebar_state="auto")
@@ -43,20 +65,26 @@ with st.sidebar:
     with st.expander("Model map for this profile"):
         st.json(cfg["profiles"][profile], expanded=True)
     st.markdown('<div class="pf-section">🔑 KEYS</div>', unsafe_allow_html=True)
-    key_state = {}
+    key_state, session_keys = {}, {}
+    secrets, secrets_err = server_secrets()
     for env, name in KEYS.items():
-        try:
-            secret = st.secrets.get(env, "")
-        except Exception:
-            secret = ""
+        secret = next((secrets[a] for a in ALIASES[env] if secrets.get(a)), "")
+        if secret and not os.environ.get(env):
+            os.environ[env] = secret          # the server's own key: the same for every visitor
         v = st.text_input(f"{name} key", value="", type="password", key=f"key_{env}",
-                          help="Bring your own key: kept only in this browser session." +
+                          help="Bring your own key: used only for runs in this browser session, never stored." +
                                (" A server key is already configured." if secret else ""))
-        if v or secret:
-            os.environ[env] = v or secret
+        if v:
+            session_keys[env] = v.strip()     # this session only: passed to its own LLM client, not os.environ
         key_state[name] = "yours" if v else "server" if secret else "env" if os.environ.get(env) else ""
     st.markdown("".join(T.chip(f"{n} ● {s}", "ok") if s else T.chip(f"{n} ○ none") for n, s in key_state.items()),
                 unsafe_allow_html=True)
+    if not any(key_state.values()):
+        with st.expander("No server key found: why?"):
+            st.caption("The app looks for secrets named " + ", ".join(ALIASES["GEMINI_API_KEY"][:3]) + " (Gemini) and "
+                       + ", ".join(ALIASES["GROQ_API_KEY"][:2]) + " (Groq), in any [section], any letter case.")
+            st.caption(f"Secrets file: {'not readable (' + secrets_err + ')' if secrets_err else 'readable'}; "
+                       f"secret names found: {', '.join(sorted(secrets)) or 'none'}.")
     st.markdown('<div class="pf-section">🎛 TUNING</div>', unsafe_allow_html=True)
     max_eps = st.number_input("Episodes to process (0 = all)", 0, 500, 0)
     judge_top = st.slider("Shortlist size for the judge", 10, 60, 40)
@@ -119,7 +147,7 @@ if go:
     llm = None
     if ai:
         from promo_finder.llm import LLM
-        llm = LLM(ROOT / "models.yaml", profile, cache_dir=CACHE, use_cache=use_cache)
+        llm = LLM(ROOT / "models.yaml", profile, cache_dir=CACHE, use_cache=use_cache, keys=session_keys)
     steps_box, bar, term = st.empty(), st.progress(0.0, "Starting"), st.empty()
     state = {"stage": 0, "logs": []}
     stage_of = {"mine": 1, "judge": 3, "cold viewer": 4, "captions": 5}
@@ -355,7 +383,7 @@ with tabs[4]:
                 from promo_finder.longcut import make_long_cuts
                 with st.spinner("Chaining approved promos…"):
                     try:
-                        llm = LLM(ROOT / "models.yaml", res["profile"], cache_dir=CACHE)
+                        llm = LLM(ROOT / "models.yaml", res["profile"], cache_dir=CACHE, keys=session_keys)
                         st.session_state["longcuts"] = make_long_cuts(cands, episodes, llm)
                     except Exception as e:
                         st.session_state["longcuts"] = {"cuts": [], "note": f"failed: {e}"}
@@ -374,7 +402,7 @@ with tabs[4]:
             if st.button("Write ad pack", key="btn_pack", width="stretch"):
                 from promo_finder.adpack import ad_pack_for
                 packs, bar2 = [], st.progress(0.0)
-                llm = LLM(ROOT / "models.yaml", res["profile"], cache_dir=CACHE)
+                llm = LLM(ROOT / "models.yaml", res["profile"], cache_dir=CACHE, keys=session_keys)
                 for i, p in enumerate(ranked[:n_pack]):
                     try:
                         packs.append(ad_pack_for(p, episodes, llm))
