@@ -86,7 +86,7 @@ class Episode:
 
 
 def _split_header(h: str) -> tuple[str, str, str]:
-    """'LADY JULIANA (Confused, Breathless)' -> ('DIALOGUE','LADY JULIANA','Confused, Breathless')."""
+    """'MAYA (Angry, Shouting)' -> ('DIALOGUE','MAYA','Angry, Shouting')."""
     h = h.strip()
     upper = h.upper()
     if upper in STRUCTURAL_TYPES:
