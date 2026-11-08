@@ -14,10 +14,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from promo_finder import prompts as P                       # noqa: E402
-from promo_finder.assemble import clip_text                 # noqa: E402
 from promo_finder.llm import LLM                            # noqa: E402
-from promo_finder.longcut import LONG_SYSTEM, LongOut, build, listing  # noqa: E402
+from promo_finder.longcut import make_long_cuts             # noqa: E402
 from promo_finder.parser import Block, Episode              # noqa: E402
 
 
@@ -30,31 +28,13 @@ def main():
     cands = json.loads((rd / "02_all_candidates.json").read_text(encoding="utf-8"))
     raw = json.loads((rd / "00_episodes_parsed.json").read_text(encoding="utf-8"))
     episodes = {int(k): Episode(**{**d, "blocks": [Block(**b) for b in d["blocks"]]}) for k, d in raw.items()}
-    # single-episode promos only, and no "flash-forward cold open" promos: they jump back in time inside
-    # themselves, which a story-order long cut must not do (longcut.build rejects it anyway)
-    valid = [c for c in cands if c["status"] == "ok" and c.get("episode")
-             and not any("cold open" in f for f in c.get("flags", []))]
-    by_id = {c["id"].upper(): c for c in valid}
-    premise = " / ".join(episodes[n].logline for n in sorted(episodes)[:3])
     llm = LLM(a.config, a.profile, cache_dir=rd.parent / "llm_cache")
-
-    user = f"PREMISE (episodes 1-3): {premise}\n\nAPPROVED CLIPS ({len(valid)}):\n{listing(valid)}"
-    obj, meta = llm.json("montage", LONG_SYSTEM, user, LongOut, temperature=0.4, tag="longcut")
-    cuts = [build(pk.model_dump(), by_id, episodes, f"LONG-{i}") for i, pk in enumerate(obj.cuts, 1)]
-    for c in cuts:
-        c["source"] = meta["model"]
+    res = make_long_cuts(cands, episodes, llm, stranger=not a.no_stranger)
+    if res["note"]:
+        print(res["note"]); return
+    cuts = res["cuts"]
     ok = [c for c in cuts if c["status"] == "ok"]
-    print(f"long cuts: {len(cuts)} proposed, {len(ok)} valid [{meta['model']}{' cached' if meta.get('cached') else ''}]")
-
-    if not a.no_stranger:
-        for c in ok:
-            text = clip_text(episodes, c, with_rel_time=False, kinds=("ACTION", "DIALOGUE", "SFX", "CAMERA"))
-            try:
-                co, cm = llm.json("cold_viewer", P.COLD_SYSTEM, f"VIDEO SCRIPT:\n{text}", P.ColdOut,
-                                  temperature=0.0, tag=f"cold_{c['id']}")
-                c["cold"] = {**co.model_dump(), "model": cm["model"]}
-            except Exception as e:
-                c["flags"].append(f"stranger test failed: {str(e)[:80]}")
+    print(f"long cuts: {len(cuts)} proposed, {len(ok)} valid [{res['model']}{' cached' if res.get('cached') else ''}]")
 
     (rd / "long_cuts.json").write_text(json.dumps(cuts, ensure_ascii=False, indent=1), encoding="utf-8")
     with open(rd / "long_cuts_edl.csv", "w", newline="", encoding="utf-8-sig") as f:
@@ -63,11 +43,11 @@ def main():
             for k, s in enumerate(c["segments"], 1):
                 w.writerow([c["id"], k, s["episode"], s["start_tc"], s["end_tc"], round(s["end"] - s["start"], 2)])
     md = ["# Long cuts (90 s - 3 min)", "",
-          f"{len(cuts)} proposed by {meta['model']}, {len(ok)} passed the code checks.", ""]
+          f"{len(cuts)} proposed by {res['model']}, {len(ok)} passed the code checks.", ""]
     for c in cuts:
         md.append(f"## {c['id']} {c['title']} ({c['duration']:.0f}s, {c['status']})")
         md.append(f"- **Parts:** {' -> '.join(c['parts'])}")
-        md.append(f"- **Segments:** " + " + ".join(f"E{s['episode']:02d} {s['start_tc']}-{s['end_tc']}" for s in c["segments"]))
+        md.append("- **Segments:** " + " + ".join(f"E{s['episode']:02d} {s['start_tc']}-{s['end_tc']}" for s in c["segments"]))
         md += [f"- **Hook:** {c['hook']}", f"- **Cliffhanger:** {c['cliffhanger']}", f"- **Why:** {c['why']}"]
         if c.get("cold"):
             cc = c["cold"]

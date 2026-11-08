@@ -98,3 +98,38 @@ def build(pick: dict, by_id: dict[str, dict], episodes: dict[int, Episode], cid:
             "why": pick.get("why"), "parts": [c["id"] for c in clips], "segments": merged, "duration": dur,
             "hook_offset": clips[0]["hook_offset"] if clips else None, "episode": None,
             "flags": flags, "reject_reasons": reasons, "status": "rejected" if reasons else "ok"}
+
+
+def eligible(cands: list[dict]) -> list[dict]:
+    """Promos a long cut may chain: valid, single-episode, and no "flash-forward cold open" (those jump
+    back in time inside themselves, which a story-order long cut must not do)."""
+    return [c for c in cands if c["status"] == "ok" and c.get("episode")
+            and not any("cold open" in f for f in c.get("flags", []))]
+
+
+def make_long_cuts(cands: list[dict], episodes: dict[int, Episode], llm, stranger: bool = True) -> dict:
+    """1 model call (role "montage") proposes chains; code checks them; optional stranger test per valid cut.
+    Returns {"cuts": [...], "model": ..., "note": ...}. Used by tools/long_cut.py and the app."""
+    from . import prompts as P
+    from .assemble import clip_text
+    valid = eligible(cands)
+    total = sum(c["duration"] for c in valid)
+    if len(valid) < 2 or total < LONG_MIN:
+        return {"cuts": [], "model": None,
+                "note": f"not enough approved footage: {len(valid)} eligible promos, {total:.0f}s in total (need 90 s+)"}
+    by_id = {c["id"].upper(): c for c in valid}
+    premise = " / ".join(episodes[n].logline for n in sorted(episodes)[:3])
+    user = f"PREMISE (episodes 1-3): {premise}\n\nAPPROVED CLIPS ({len(valid)}):\n{listing(valid)}"
+    obj, meta = llm.json("montage", LONG_SYSTEM, user, LongOut, temperature=0.4, tag="longcut")
+    cuts = [build(pk.model_dump(), by_id, episodes, f"LONG-{i}") for i, pk in enumerate(obj.cuts, 1)]
+    for c in cuts:
+        c["source"] = meta["model"]
+        if stranger and c["status"] == "ok":
+            text = clip_text(episodes, c, with_rel_time=False, kinds=("ACTION", "DIALOGUE", "SFX", "CAMERA"))
+            try:
+                co, cm = llm.json("cold_viewer", P.COLD_SYSTEM, f"VIDEO SCRIPT:\n{text}", P.ColdOut,
+                                  temperature=0.0, tag=f"cold_{c['id']}")
+                c["cold"] = {**co.model_dump(), "model": cm["model"]}
+            except Exception as e:
+                c["flags"].append(f"stranger test failed: {str(e)[:80]}")
+    return {"cuts": cuts, "model": meta["model"], "cached": bool(meta.get("cached")), "note": ""}
