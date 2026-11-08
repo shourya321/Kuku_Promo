@@ -52,7 +52,7 @@ th {{ background: #f6eeee; font-weight: 600; }} .n {{ text-align: center; font-w
 .two {{ display: flex; gap: 10px; }} .two > div {{ flex: 1; }} .pb {{ page-break-before: always; }} b.k {{ color: #8a1c1c; }}
 </style></head><body>
 <h1>Promo Finder: an AI first pass for microdrama promos</h1>
-<div class=sub>Kuku AI Generalist assignment · Problem 1 "Find the Promos" · {e(N.get('author', ''))} · Prototype: {e(N.get('link', ''))}</div>
+<div class=sub>Kuku AI Generalist · Problem 1 · {e(N.get('author', ''))} · Prototype: {e(N.get('link', ''))}{' · Code: ' + e(N['repo']) if N.get('repo') else ''}</div>
 
 <h2>1. The problem and why it matters</h2>
 {N.get('problem', '')}
