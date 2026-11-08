@@ -22,6 +22,26 @@ def test_app_keyword_run_renders_all_tabs():
     assert any("Bulk approve" in b.label for b in at.button)
 
 
+def test_saved_run_round_trip(tmp_path):
+    """A finished run's output folder, zipped, re-opens through load_saved_run with the same promos."""
+    import io
+    import json
+    import zipfile
+    from promo_finder.pipeline import Run
+    Run(ROOT / "sample_input" / "demo_show", tmp_path / "run", mode="heuristic", log=lambda *a: None).run()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for f in (tmp_path / "run").rglob("*"):
+            z.write(f, Path("outputs_demo") / f.relative_to(tmp_path / "run"))
+        z.writestr("../evil.txt", "must not be extracted outside")
+    from promo_finder.saved_run import load_saved_run
+    res = load_saved_run(buf.getvalue(), "gemini_only")
+    ranked = json.loads((Path(res["out"]) / "03_promos_ranked.json").read_text(encoding="utf-8"))
+    assert res["saved"] and res["summary"]["mode"] == "heuristic" and len(ranked) == res["summary"]["ranked"]
+    assert set(res["episodes"]) == {1, 2, 3}
+    assert not (Path(res["out"]).parents[1] / "evil.txt").exists()
+
+
 def test_server_key_found_under_alias_in_a_section(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)

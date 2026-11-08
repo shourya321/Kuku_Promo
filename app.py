@@ -20,6 +20,7 @@ import yaml
 from promo_finder import ui_theme as T
 from promo_finder.assemble import clip_text
 from promo_finder.pipeline import Run
+from promo_finder.saved_run import load_saved_run
 
 ROOT = Path(__file__).parent
 # USD per 1M tokens (input, output). Approximate paid list prices; check the provider's page before quoting.
@@ -101,10 +102,25 @@ st.markdown(T.hero("".join(chips)), unsafe_allow_html=True)
 # ------------------------------------------------------------------ input
 st.markdown('<div class="pf-section">01 · INPUT</div>', unsafe_allow_html=True)
 src = st.radio("Input", ["📤 Upload a show (.zip of episode .txt files)", "🧪 Demo show (synthetic, 3 episodes)",
-                         "💼 Second demo: billionaire revenge (4 episodes, other file format)"],
+                         "💼 Second demo: billionaire revenge (4 episodes, other file format)",
+                         "📂 Open a saved run (.zip of a run's output folder)"],
                horizontal=True, label_visibility="collapsed")
 data = None
-if src.startswith("📤"):
+saved_mode = src.startswith("📂")
+if saved_mode:
+    st.caption("Re-open a finished run without re-running it: zip an `outputs/<run>` folder, or use "
+               "\"All raw outputs (zip)\" from the Export tab of an earlier run.")
+    up = st.file_uploader("Saved run zip", type=["zip"], label_visibility="collapsed", key="saved_zip")
+    if up and st.session_state.get("saved_id") != up.file_id:
+        try:
+            st.session_state["result"] = load_saved_run(up.getvalue(), profile)
+            st.session_state["saved_id"] = up.file_id
+            for k in ("longcuts", "adpack"):
+                st.session_state.pop(k, None)
+            st.toast("📂 Saved run loaded")
+        except Exception as e:
+            st.error(f"Could not open this zip as a saved run: {e}")
+elif src.startswith("📤"):
     up = st.file_uploader("Show zip", type=["zip"], label_visibility="collapsed")
     if up:
         data = up.getvalue()
@@ -129,17 +145,19 @@ if data is not None:   # free format check before any model call
     st.markdown(f'<div class="pf-chips">{"".join(fc)}</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------------ launch
-st.markdown('<div class="pf-section">02 · LAUNCH</div>', unsafe_allow_html=True)
-n_eps = min(v.get("episodes_found", 0), max_eps or 10**6) if v else 0
-est = (n_eps + 1 + -(-judge_top // 8) + 3 * cold_top + 3) if ai else 0   # miner + montage + judge + cold/caption/re-test + rank
-lc1, lc2 = st.columns([1.3, 2])
-go = lc1.button("🚀  Find promos", type="primary", disabled=data is None or (v is not None and not v.get("ok")),
-                width="stretch")
-if v is None:
-    lc2.markdown(f'<div class="pf-chips">{T.chip("choose an input to see the call estimate")}</div>', unsafe_allow_html=True)
-else:
-    lc2.markdown(f'<div class="pf-chips">{T.chip(f"≈ {est} model calls (estimate, before cache)" if ai else "0 model calls · free", "cyan")}'
-                 f'{T.chip("repair calls extra, only when a pick fails a timing rule") if ai else ""}</div>', unsafe_allow_html=True)
+go = False
+if not saved_mode:
+    st.markdown('<div class="pf-section">02 · LAUNCH</div>', unsafe_allow_html=True)
+    n_eps = min(v.get("episodes_found", 0), max_eps or 10**6) if v else 0
+    est = (n_eps + 1 + -(-judge_top // 8) + 3 * cold_top + 3) if ai else 0   # miner + montage + judge + cold/caption/re-test + rank
+    lc1, lc2 = st.columns([1.3, 2])
+    go = lc1.button("🚀  Find promos", type="primary", disabled=data is None or (v is not None and not v.get("ok")),
+                    width="stretch")
+    if v is None:
+        lc2.markdown(f'<div class="pf-chips">{T.chip("choose an input to see the call estimate")}</div>', unsafe_allow_html=True)
+    else:
+        lc2.markdown(f'<div class="pf-chips">{T.chip(f"≈ {est} model calls (estimate, before cache)" if ai else "0 model calls · free", "cyan")}'
+                     f'{T.chip("repair calls extra, only when a pick fails a timing rule") if ai else ""}</div>', unsafe_allow_html=True)
 
 if go:
     work = Path(tempfile.mkdtemp(prefix="promo_"))
@@ -201,6 +219,9 @@ cost = sum(PRICE_PER_M.get(m.split(":", 1)[-1], (0.10, 0.40))[0] * u["in"] / 1e6
 calls = sum(u["calls"] for u in usage.values())
 top_score = max([p.get("score") or 0 for p in ranked] or [0])
 st.markdown('<div class="pf-section">03 · RESULTS</div>', unsafe_allow_html=True)
+if res.get("saved"):
+    st.markdown('<div class="pf-chips">' + T.chip("📂 saved run: opened from its output files, nothing re-run", "cyan")
+                + T.chip(f"originally run with: {summary.get('mode')}") + "</div>", unsafe_allow_html=True)
 st.markdown(T.kpis([
     ("Episodes", str(summary["episodes"]), summary["show"][:28]),
     ("Candidates", str(summary["candidates_total"]), "proposed by the miner" if res["ai"] else "keyword engine"),

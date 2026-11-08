@@ -11,8 +11,6 @@ run, base, out_pdf = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
 ranked = json.loads((run / "03_promos_ranked.json").read_text(encoding="utf-8"))
 summ = json.loads((run / "run_summary.json").read_text(encoding="utf-8"))
 ev = json.loads((run / "eval_metrics.json").read_text(encoding="utf-8")) if (run / "eval_metrics.json").exists() else {}
-NOTES = json.loads(Path(sys.argv[4]).read_text(encoding="utf-8")) if len(sys.argv) > 4 else {}
-
 e = html.escape
 
 
@@ -25,11 +23,13 @@ def segs(p):
     return " + ".join(f"E{s['episode']} {s['start_tc'][:-3]}–{s['end_tc'][:-3]}" for s in p["segments"])
 
 
+NOTES = json.loads(Path(sys.argv[4]).read_text(encoding="utf-8")) if len(sys.argv) > 4 else {}
+TOP = int(NOTES.get("table_rows", 5))
 rows = ""
-for p in ranked[:6]:
+for p in ranked[:TOP]:
     rows += (f"<tr><td class=n>{p['rank']}</td><td><b>{e(p.get('title', ''))}</b><br><span class=mut>{segs(p)} · {p['duration']:.0f}s</span></td>"
-             f"<td>{e(cut(p.get('hook', ''), 110))}</td><td>{e(cut(p.get('cliffhanger', ''), 110))}</td>"
-             f"<td>{e(cut(p.get('rank_reason') or p.get('why', ''), 150))}</td></tr>")
+             f"<td>{e(cut(p.get('hook', ''), 95))}</td><td>{e(cut(p.get('cliffhanger', ''), 95))}</td>"
+             f"<td>{e(cut(p.get('rank_reason') or p.get('why', ''), 130))}</td></tr>")
 
 stats = summ.get("llm_stats", {})
 tok_in, tok_out, calls = stats.get("prompt_tokens", 0), stats.get("completion_tokens", 0), stats.get("calls", 0)
@@ -54,20 +54,21 @@ th {{ background: #f6eeee; font-weight: 600; }} .n {{ text-align: center; font-w
 <h1>Promo Finder: an AI first pass for microdrama promos</h1>
 <div class=sub>Kuku AI Generalist · Problem 1 · {e(N.get('author', ''))} · Prototype: {e(N.get('link', ''))}{' · Code: ' + e(N['repo']) if N.get('repo') else ''}</div>
 
-<h2>1. The problem and why it matters</h2>
-{N.get('problem', '')}
+<h2>1. Why Problem 1, and the assumptions I made</h2>
+{N.get('why') or N.get('problem', '')}
+{N.get('assumptions', '')}
 
-<h2>2. Approach: code does the exact work, AI does the judgement</h2>
+<h2>2. How it works: code does the exact work, AI does the judgement</h2>
 <div class=flow>{e(N.get('flow', ''))}</div>
 {N.get('approach', '')}
 
-<h2>3. Results on "{e(summ['show'])}" ({summ['episodes']} episodes, real run)</h2>
+<h2>3. Results on "{e(summ['show'])}" ({summ['episodes']} episodes, real run) and what to post first</h2>
 <p>{N.get('results_intro', '')}</p>
 <table><tr><th>#</th><th>Promo (segments, length)</th><th>Hook (first 3 s)</th><th>Cliffhanger (cut point)</th><th>Why post it here</th></tr>{rows}</table>
-<p class=mut>Full list ({len(ranked)} ranked promos with scores, stranger-test answers and flags), the edit decision list and every raw model reply are in the outputs folder.</p>
+<p class=mut>{N.get('table_note') or f"Full list ({len(ranked)} ranked promos with scores, stranger-test answers and flags), the edit decision list and every raw model reply are in the raw outputs."}</p>
 
 <div class=pb></div>
-<h2>4. Quality check: does it actually pick well?</h2>
+<h2>4. How I know it is good</h2>
 {N.get('quality_intro', '')}
 <table><tr><th>Blind, same judge (1–5)</th><th>Hook</th><th>Cliffhanger</th><th>Standalone</th><th>Stranger clarity</th><th>Stranger keep-watching</th><th>Score /100</th></tr>{comp_rows}</table>
 {N.get('quality', '')}
@@ -77,7 +78,8 @@ th {{ background: #f6eeee; font-weight: 600; }} .n {{ text-align: center; font-w
 <h2>6. Scale, cost and the human in the loop</h2>
 {N.get('scale', '')}
 <p class=mut>{N.get('run_line') or f"This run: {calls} model calls, {tok_in:,} input + {tok_out:,} output tokens."}</p>
-<h2>7. What I would do next / with paid APIs</h2>
+{('<h2>7. AI tools I used, and where they got it wrong</h2>' + N['tools']) if N.get('tools') else ''}
+<h2>{'8' if N.get('tools') else '7'}. With paid APIs, and what I would do next</h2>
 {N.get('next', '')}
 </body></html>"""
 

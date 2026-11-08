@@ -86,7 +86,7 @@ Try it without Kuku's data: `python run.py --input sample_input/demo_show` (a 3-
 ## The app
 `streamlit run app.py` (live: https://kukupromo.streamlit.app) is a dark, neon "control deck":
 * **Sidebar:** engine (AI or keyword), model profile, key status (server key, your own key, or none; keys are never shown) and tuning.
-* **Input and launch:** a free format check shown as chips, then an estimate of model calls before you press Find promos.
+* **Input and launch:** a free format check shown as chips, then an estimate of model calls before you press Find promos. **Open a saved run** re-opens a finished run from a zip of its output folder (no model calls), to share results with an editor or to show a full-show run without waiting for it.
 * **During the run:** a live pipeline stepper (parse → mine + repair → rules → blind judge → stranger test → captions → rank ×3 → final list) and a log terminal.
 * **Results** (headline numbers, then six tabs):
   * **Leaderboard:** promo cards with a score ring, hook / cliffhanger / caption, a timeline of where each cut sits in its episode, judge bars and the stranger's read. Search, minimum score, trope-family filter, sort, and a switch to hide flagged picks. Each card opens to the script, critique and a 9:16 animatic render.
