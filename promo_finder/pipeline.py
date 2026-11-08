@@ -28,7 +28,7 @@ def _now():
 
 class Run:
     def __init__(self, show_input, out_dir, llm=None, mode="llm", judge_top=40, cold_top=15,
-                 rank_top=12, max_eps=None, montage=True, log=print, progress=None):
+                 rank_top=12, max_eps=None, montage=True, log=print, progress=None, concurrency=1):
         self.show, eps = load_show(show_input)
         if max_eps:
             eps = eps[:max_eps]
@@ -38,6 +38,9 @@ class Run:
         self.llm, self.mode = llm, mode
         self.judge_top, self.cold_top, self.rank_top = judge_top, cold_top, rank_top
         self.do_montage = montage and mode == "llm"
+        self.concurrency = concurrency
+        import threading
+        self._lock = threading.Lock()   # repair_stats + log file are shared by miner threads
         # "w", not "a": a rerun into the same folder must not mix its log with an older run's log
         self.logf = open(self.out / "run_log.txt", "w", encoding="utf-8")
         self._log, self.progress = log, progress or (lambda *a: None)
@@ -49,46 +52,70 @@ class Run:
 
     def log(self, msg):
         line = f"[{_now()}] {msg}"
-        self._log(line)
-        self.logf.write(line + "\n"); self.logf.flush()
+        with self._lock:
+            self._log(line)
+            self.logf.write(line + "\n"); self.logf.flush()
 
     def dump(self, name, obj):
         (self.out / name).write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # ------------------------------------------------------------ stages
     def mine(self) -> tuple[list[dict], list[dict]]:
+        """One miner call (+ at most one repair call) per episode. Episodes are independent, so with
+        concurrency > 1 they run in parallel threads (useful with a paid key; on a free tier the rpm
+        pacing in llm.py still holds). Results are merged in episode order, so output order is the same."""
         cands, moments, mined_raw = [], [], {}
         eps = list(self.episodes.values())
-        for i, ep in enumerate(eps):
-            self.progress("mine", i, len(eps))
-            if self.mode == "heuristic":
-                out = heuristic.mine_episode(ep)
-                meta = {"model": "keyword-baseline"}
-            else:
-                prev = self.episodes.get(ep.number - 1)
-                try:
-                    obj, meta = self.llm.json("miner", P.MINER_SYSTEM, P.miner_user(self.show, ep, prev.logline if prev else ""),
-                                              P.MinerOut, temperature=0.3, tag=f"miner_E{ep.number:02d}")
-                    out = obj.model_dump()
-                except Exception as e:
-                    self.errors.append(f"miner E{ep.number}: {e}")
-                    self.log(f"E{ep.number:02d}: miner failed ({str(e)[:120]}) -> keyword fallback")
-                    out, meta = heuristic.mine_episode(ep), {"model": "keyword-fallback"}
-            mined_raw[ep.number] = {"meta": meta, **out}
-            ep_cands = []
-            for j, c in enumerate(out["candidates"], 1):
-                c = dict(c); c["id"] = f"E{ep.number:02d}-P{j}"; c["source"] = meta["model"]
-                ep_cands.append((c, assemble(ep, c, allow_flash=False)))
-            cands += self._repair(ep, ep_cands)
-            for j, m in enumerate(out.get("moments", []), 1):
-                mm = self._moment(ep, m, f"E{ep.number:02d}-M{j}")
-                if mm:
-                    moments.append(mm)
-            ok = sum(1 for c in cands if c["episode"] == ep.number and c["status"] == "ok")
-            self.log(f"E{ep.number:02d}: {len(out['candidates'])} candidates ({ok} valid), "
-                     f"{len(out.get('moments', []))} moments [{meta['model']}{' cached' if meta.get('cached') else ''}]")
+        workers = max(1, int(self.concurrency or 1))
+        if workers == 1 or self.mode == "heuristic":
+            results = []
+            for i, ep in enumerate(eps):
+                self.progress("mine", i, len(eps))
+                results.append(self._mine_episode(ep))
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futs = [pool.submit(self._mine_episode, ep) for ep in eps]
+                results = []
+                for i, f in enumerate(futs):
+                    self.progress("mine", i, len(eps))
+                    results.append(f.result())
+        for ep, (ep_cands, ep_moments, raw, line) in zip(eps, results):
+            mined_raw[ep.number] = raw
+            cands += ep_cands
+            moments += ep_moments
+            self.log(line)
         self.dump("01_mined_raw.json", mined_raw)
         return cands, moments
+
+    def _mine_episode(self, ep):
+        if self.mode == "heuristic":
+            out = heuristic.mine_episode(ep)
+            meta = {"model": "keyword-baseline"}
+        else:
+            prev = self.episodes.get(ep.number - 1)
+            try:
+                obj, meta = self.llm.json("miner", P.MINER_SYSTEM, P.miner_user(self.show, ep, prev.logline if prev else ""),
+                                          P.MinerOut, temperature=0.3, tag=f"miner_E{ep.number:02d}")
+                out = obj.model_dump()
+            except Exception as e:
+                self.errors.append(f"miner E{ep.number}: {e}")
+                self.log(f"E{ep.number:02d}: miner failed ({str(e)[:120]}) -> keyword fallback")
+                out, meta = heuristic.mine_episode(ep), {"model": "keyword-fallback"}
+        ep_cands = []
+        for j, c in enumerate(out["candidates"], 1):
+            c = dict(c); c["id"] = f"E{ep.number:02d}-P{j}"; c["source"] = meta["model"]
+            ep_cands.append((c, assemble(ep, c, allow_flash=False)))
+        ep_cands = self._repair(ep, ep_cands)
+        ep_moments = []
+        for j, m in enumerate(out.get("moments", []), 1):
+            mm = self._moment(ep, m, f"E{ep.number:02d}-M{j}")
+            if mm:
+                ep_moments.append(mm)
+        ok = sum(1 for c in ep_cands if c["status"] == "ok")
+        line = (f"E{ep.number:02d}: {len(out['candidates'])} candidates ({ok} valid), "
+                f"{len(out.get('moments', []))} moments [{meta['model']}{' cached' if meta.get('cached') else ''}]")
+        return ep_cands, ep_moments, {"meta": meta, **out}, line
 
     def _repair(self, ep, pairs: list[tuple[dict, dict]]) -> list[dict]:
         """Repair loop. A candidate that failed only on timing goes back to the miner ONCE (one call per
@@ -107,7 +134,7 @@ class Run:
                 fixes = {c["id"]: r.model_dump() for (c, _, _), r in zip(failed, obj.candidates)}
             except Exception as e:
                 self.errors.append(f"repair E{ep.number}: {e}")
-        out = []
+        out, n = [], {"sent_to_repair": len(failed), "fixed_by_miner": 0, "fixed_by_cold_open": 0, "still_rejected": 0}
         for c, p in pairs:
             if p["status"] == "ok" or not any(c is f[0] for f in failed):
                 out.append(p); continue
@@ -116,12 +143,14 @@ class Run:
                 r = assemble(ep, {**fixes[c["id"]], "id": c["id"], "source": c["source"]}, allow_flash=False)
                 if r["status"] == "ok":
                     r["flags"].append("repaired by miner: " + hint.split(":")[0])
-                    self.repair_stats["fixed_by_miner"] += 1
+                    n["fixed_by_miner"] += 1
                     out.append(r); continue
             last = assemble(ep, c, allow_flash=True)          # last resort
-            self.repair_stats["fixed_by_cold_open" if last["status"] == "ok" else "still_rejected"] += 1
+            n["fixed_by_cold_open" if last["status"] == "ok" else "still_rejected"] += 1
             out.append(last)
-        self.repair_stats["sent_to_repair"] += len(failed)
+        with self._lock:
+            for k, v in n.items():
+                self.repair_stats[k] += v
         return out
 
     def _moment(self, ep, m, mid):

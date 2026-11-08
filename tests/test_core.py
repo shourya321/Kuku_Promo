@@ -163,3 +163,38 @@ def test_llm_cache_hit(tmp_path, monkeypatch):
     b, m2 = llm.json("cold_viewer", "sys", "user", ColdOut, tag="t")
     assert len(calls) == 1 and not m1["cached"] and m2["cached"]
     assert a == b and llm.stats["cache_hits"] == 1
+
+
+# ---------------------------------------------------------------- long cuts
+def _demo_clips(tmp_path):
+    import json
+    from promo_finder.pipeline import Run
+    r = Run(DEMO, tmp_path, mode="heuristic", log=lambda *a: None)
+    r.run()
+    c = json.loads((tmp_path / "02_all_candidates.json").read_text(encoding="utf-8"))
+    v = sorted([x for x in c if x["status"] == "ok" and x.get("episode")],
+               key=lambda x: (x["episode"], x["segments"][0]["start"]))
+    return r.episodes, {x["id"].upper(): x for x in v}, [x["id"] for x in v]
+
+
+def test_long_cut_rules(tmp_path, monkeypatch):
+    from promo_finder import longcut
+    eps, by_id, ids = _demo_clips(tmp_path)
+    pick = lambda c: {"title": "t", "clip_ids": c, "hook": "h", "cliffhanger": "c", "why": "w"}
+    # the demo show's 3 clips add up to under 90 s: rejected on length, never stretched
+    r = longcut.build(pick(ids), by_id, eps, "L1")
+    assert r["status"] == "rejected" and any("outside 90-180s" in x for x in r["reject_reasons"])
+    # wrong story order, a hallucinated id and a repeated clip are each rejected by code
+    assert any("before" in x for x in longcut.build(pick(ids[::-1]), by_id, eps, "L2")["reject_reasons"])
+    assert any("unknown" in x for x in longcut.build(pick([ids[0], "E09-P9"]), by_id, eps, "L3")["reject_reasons"])
+    assert any("twice" in x for x in longcut.build(pick([ids[0], ids[0]]), by_id, eps, "L4")["reject_reasons"])
+    # two different promos covering the same footage: repeated footage is rejected
+    by_id["COPY"] = {**by_id[ids[0].upper()], "id": "COPY"}
+    assert any("repeats" in x for x in longcut.build(pick([ids[0], "COPY"]), by_id, eps, "L6")["reject_reasons"])
+    del by_id["COPY"]
+    # with the floor lowered, the same chain passes: hook offset inherited, every cut clean, story order kept
+    monkeypatch.setattr(longcut, "LONG_MIN", 60.0)
+    ok = longcut.build(pick(ids), by_id, eps, "L5")
+    assert ok["status"] == "ok", ok["reject_reasons"]
+    assert ok["hook_offset"] <= 3.0 and ok["parts"] == ids
+    assert all(is_clean_cut(eps[s["episode"]], t) for s in ok["segments"] for t in (s["start"], s["end"]))
