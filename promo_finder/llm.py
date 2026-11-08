@@ -42,7 +42,11 @@ def _extract_json(text: str) -> str:
 
 class LLM:
     def __init__(self, config_path: str | Path = "models.yaml", profile: str | None = None,
-                 cache_dir: str | Path = ".cache/llm", use_cache: bool = True, log=print):
+                 cache_dir: str | Path = ".cache/llm", use_cache: bool = True, log=print,
+                 keys: dict[str, str] | None = None):
+        # keys: {env var name: key} for THIS client only (e.g. a key a visitor typed into the app).
+        # Never written to os.environ, which every session of a server process shares.
+        self.keys = {k: v for k, v in (keys or {}).items() if v}
         cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
         self.profile_name = profile or cfg.get("default_profile")
         if self.profile_name not in cfg["profiles"]:
@@ -69,15 +73,19 @@ class LLM:
             raise LLMError(f"No model configured for role '{role}' in profile '{self.profile_name}'")
         return spec if isinstance(spec, list) else [spec]
 
-    def _has_key(self, provider: str) -> bool:
+    def _key(self, provider: str) -> str:
         p = self.providers[provider]
-        return not p.get("requires_key", True) or bool(os.environ.get(p.get("api_key_env", "")) or p.get("api_key"))
+        env = p.get("api_key_env", "")
+        return self.keys.get(env) or os.environ.get(env, "") or p.get("api_key", "")
+
+    def _has_key(self, provider: str) -> bool:
+        return not self.providers[provider].get("requires_key", True) or bool(self._key(provider))
 
     def _client(self, provider: str):
         if provider not in self._clients:
             from openai import OpenAI
             p = self.providers[provider]
-            key = os.environ.get(p.get("api_key_env", ""), "") or p.get("api_key", "")
+            key = self._key(provider)
             if not key and p.get("requires_key", True):
                 raise LLMError(f"Missing API key: set environment variable {p.get('api_key_env')}")
             self._clients[provider] = OpenAI(base_url=p["base_url"], api_key=key or "none",
