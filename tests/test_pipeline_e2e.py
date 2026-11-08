@@ -57,3 +57,31 @@ def test_mock_llm_run(tmp_path):
             "unknown" in k for k in s["rejected_by_reason"])
     finally:
         srv.kill()
+
+
+def test_parallel_mining_matches_serial(tmp_path):
+    """--concurrency mines episodes in threads; merged in episode order, the result equals a serial run
+    (the second run reads the first run's cached replies, so both see identical model output)."""
+    import json
+    from promo_finder.llm import LLM
+    port = _free_port()
+    srv = subprocess.Popen([sys.executable, str(ROOT / "tests" / "mock_server.py"), str(port)])
+    try:
+        for _ in range(50):
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=0.2).close(); break
+            except OSError:
+                time.sleep(0.1)
+        cfg = tmp_path / "mock.yaml"
+        cfg.write_text((ROOT / "tests" / "models_mock.yaml").read_text().replace("8765", str(port)))
+        outs = {}
+        for n in (3, 1):
+            llm = LLM(cfg, cache_dir=tmp_path / "cache", log=lambda *a: None)
+            out = tmp_path / f"run{n}"
+            s = Run(DEMO, out, llm=llm, mode="llm", log=lambda *a: None, concurrency=n, montage=False).run()
+            outs[n] = (json.loads((out / "02_all_candidates.json").read_text(encoding="utf-8")), s["repair_loop"])
+        assert [c["id"] for c in outs[3][0]] == [c["id"] for c in outs[1][0]]
+        assert [c["segments"] for c in outs[3][0]] == [c["segments"] for c in outs[1][0]]
+        assert outs[3][1] == outs[1][1]
+    finally:
+        srv.kill()

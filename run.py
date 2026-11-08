@@ -27,6 +27,8 @@ def main():
     ap.add_argument("--cold-top", type=int, default=15)
     ap.add_argument("--rank-top", type=int, default=12)
     ap.add_argument("--no-montage", action="store_true")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="episodes mined in parallel (for paid keys; rpm limits in models.yaml still apply)")
     a = ap.parse_args()
 
     # Free format check first: a new show with format quirks should fail in seconds, not after model calls.
@@ -46,7 +48,8 @@ def main():
         from promo_finder.llm import LLM
         llm = LLM(a.config, a.profile, cache_dir=Path(out).parent / "llm_cache", use_cache=not a.no_cache)
     run = Run(a.input, out, llm=llm, mode=a.mode, judge_top=a.judge_top, cold_top=a.cold_top,
-              rank_top=a.rank_top, max_eps=a.max_eps, montage=not a.no_montage)
+              rank_top=a.rank_top, max_eps=a.max_eps, montage=not a.no_montage,
+              concurrency=a.concurrency)
     s = run.run()
     print(json.dumps({k: s[k] for k in ("candidates_total", "candidates_valid", "ranked", "rejected_by_reason",
                                         "ranker_consistency", "repair_loop", "runtime_s")}, indent=2))

@@ -69,6 +69,7 @@ export GEMINI_API_KEY=...            # free key: https://aistudio.google.com/api
 python run.py --input path/to/show.zip                 # AI run (profile from models.yaml)
 python run.py --input path/to/show.zip --max-eps 3     # quick smoke test
 python run.py --input path/to/show.zip --mode heuristic   # no AI, keyword baseline
+python run.py --input path/to/show.zip --concurrency 8    # paid key: mine episodes in parallel (rpm limits still apply)
 python evaluate.py outputs/<run> --vs-baseline --human-sheet
 python evaluate.py outputs/<run> --vs-baseline --judges gemini:gemini-flash-lite-latest,groq:openai/gpt-oss-120b
                                                        # several judges score the same blind clips + agreement stats
@@ -77,6 +78,19 @@ streamlit run app.py                                   # UI: run, review, approv
 Try it without Kuku's data: `python run.py --input sample_input/demo_show` (a 3-episode synthetic show written for this repo).
 
 **A new show in a different format.** `python -m promo_finder.validate <show>` is a free format check that also runs before every pipeline run and in the app. It reports episodes, blocks, timestamp style (`mm:ss.ff` or `hh:mm:ss.ff`), CRLF files, timestamp anomalies, missing CAMERA blocks and unparseable lines. `sample_input/revenge_show` is a second synthetic show in another genre (modern billionaire revenge, 4 episodes). It was written with quirks the parser did not originally handle: CRLF line endings, `hh:mm:ss.ff` timestamps, title-case headers, `Ep_01.txt` file names and an episode with no CAMERA blocks. After a parser fix for `hh:mm:ss`, the full AI pipeline ran on it: 4 ranked promos, all 4 passed the hook, length and clean-cut rules, and 1 timing failure was repaired by the miner.
+
+## Long cuts (90 s – 3 min) for paid UA
+`python tools/long_cut.py outputs/<run>` writes `long_cuts.md`, `long_cuts.json` and `long_cuts_edl.csv`. Episodes are about 2 minutes, so a 90–180 s ad has to span episodes. Rather than asking a model for new timestamps, the tool **chains promos that already passed every rule**:
+* One model call picks 2–6 approved promos that tell one arc.
+* Code then rejects unknown ids, wrong story order, any repeated or rewound footage, and lengths outside 90–180 s, and re-checks every cut.
+* Each long cut inherits the hook-in-3-s and clean-cut guarantees of its parts. Whether a stranger can follow the jumps is measured with the same stranger test.
+
+On Kuku's show this took 4 calls and produced 3 long cuts (145–162 s), all of which passed the checks. Stranger test: clarity 4.0 and keep-watching 4.33, against 4.33 and 3.93 for the 15 short promos (n = 3, directional).
+
+Honest notes:
+* The first version let a "cold open" promo into a chain, which repeated 4.7 s of footage. The repeated-footage check now catches this, and cold-open promos are left out of the list the model sees.
+* Two of the three cuts sell late-show reveals, so check them for spoilers before posting. Spoiler risk is not checked by code.
+* The model's own stated runtime was wrong once (it said 141 s; the cut was 161 s). Code measures the real length.
 
 ## Swap the model
 Edit one line in `models.yaml`, or pick another profile: `--profile gemini_groq | groq_only | local_ollama | kuku_api`. Any OpenAI-compatible endpoint works. Each role (miner, judge, cold_viewer, captioner, ranker, montage) can use a different model and can have a fallback chain. A rate-limited model (429) with a fallback behind it is abandoned after 2 attempts, so a throttled free tier does not stall the run.
@@ -100,6 +114,8 @@ Kuku's input pack is never committed (`.gitignore` excludes `data/`, `outputs/`,
 * assembler rules: hook ≤ 3 s, 20–60 s, no mid-line cuts, unknown IDs rejected, cold-open fallback, precise repair hints
 * judge ID normalisation, the final-list policy, the agreement statistics and the LLM cache
 * a keyword run, plus the full AI code path against `tests/mock_server.py`, a fake API that returns broken JSON and hallucinated block IDs on purpose
+* `--concurrency`: parallel mining gives the same candidates and repair counts as a serial run (against the mock API; not yet timed on a paid key)
+* long-cut rules: too short, wrong order, unknown id, reused clip and repeated footage are each rejected
 
 ## Known limitations (honest)
 * Every model-judged number is one LLM's opinion on n = 10 clips. Real performance is only knowable from an A/B test of the clips as ads.
@@ -107,3 +123,4 @@ Kuku's input pack is never committed (`.gitignore` excludes `data/`, `outputs/`,
 * The ranker is order-sensitive (Spearman 0.48 across 3 prompt orders), so treat its order as a suggestion for the editor.
 * The context caption has not shown a measurable clarity gain yet. It sometimes breaks its 12-word limit (flagged by code) and can invent a relationship the clip doesn't show, so an editor must check it.
 * Text only: no video, so visual quality (acting, framing) is judged from the script's descriptions.
+* `--concurrency` is only tested against the mock API. On the free Gemini tier it gives no speed-up, because the rpm pacing in `models.yaml` still serialises calls.

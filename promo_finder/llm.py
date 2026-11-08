@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Type
@@ -54,6 +55,7 @@ class LLM:
         self.log = log
         self._clients: dict = {}
         self._last_call: dict[str, float] = {}
+        self._lock = threading.RLock()   # stats + pacing are shared when the miner runs episodes in parallel
         self.stats = {"calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0,
                       "failures": 0, "by_model": {}}
 
@@ -83,15 +85,19 @@ class LLM:
         return self._clients[provider]
 
     def _pace(self, provider: str, model_cfg: dict):
+        """Keep each model under its rpm. Thread-safe: with --concurrency, each thread reserves the next
+        free slot under the lock, then sleeps outside it, so the rpm limit holds across threads."""
         rpm = model_cfg.get("rpm") or self.providers[provider].get("rpm")
         if not rpm:
             return
         gap = 60.0 / rpm
         key = provider + ":" + model_cfg["model"]
-        wait = self._last_call.get(key, 0) + gap - time.time()
+        with self._lock:
+            slot = max(time.time(), self._last_call.get(key, 0) + gap)
+            self._last_call[key] = slot
+        wait = slot - time.time()
         if wait > 0:
             time.sleep(wait)
-        self._last_call[key] = time.time()
 
     # ------------------------------------------------------------------
     def json(self, role: str, system: str, user: str, schema: Type[BaseModel],
@@ -122,7 +128,8 @@ class LLM:
             rec = json.loads(path.read_text(encoding="utf-8"))
             try:
                 obj = schema.model_validate_json(_extract_json(rec["response"]))
-                self.stats["cache_hits"] += 1
+                with self._lock:
+                    self.stats["cache_hits"] += 1
                 return obj, {"model": f"{provider}:{model}", "cached": True, "cache_file": path.name}
             except ValidationError:
                 pass  # stale/invalid cache entry: call again
@@ -171,11 +178,12 @@ class LLM:
                 u = getattr(r, "usage", None)
                 usage = {"prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
                          "completion_tokens": getattr(u, "completion_tokens", 0) or 0}
-                self.stats["calls"] += 1
-                self.stats["prompt_tokens"] += usage["prompt_tokens"]
-                self.stats["completion_tokens"] += usage["completion_tokens"]
-                bm = self.stats["by_model"].setdefault(f"{provider}:{model}", {"calls": 0, "in": 0, "out": 0})
-                bm["calls"] += 1; bm["in"] += usage["prompt_tokens"]; bm["out"] += usage["completion_tokens"]
+                with self._lock:
+                    self.stats["calls"] += 1
+                    self.stats["prompt_tokens"] += usage["prompt_tokens"]
+                    self.stats["completion_tokens"] += usage["completion_tokens"]
+                    bm = self.stats["by_model"].setdefault(f"{provider}:{model}", {"calls": 0, "in": 0, "out": 0})
+                    bm["calls"] += 1; bm["in"] += usage["prompt_tokens"]; bm["out"] += usage["completion_tokens"]
                 if not text.strip():
                     raise LLMError("empty response")
                 return text, usage
